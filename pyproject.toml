@@ -1,0 +1,23 @@
+[project]
+name = "microkanren"
+version = "0.0.1"
+authors = [
+    { name="Joshua Munn", email="public@elysee-munn.family" },
+]
+description = "A Python implementation of microKanren"
+readme = "README.md"
+requires-python = ">= 3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 2 - Pre-Alpha",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/jams2/microkanren"
+"Bug Tracker" = "https://github.com/jams2/microkanren/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
