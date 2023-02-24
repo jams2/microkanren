@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Union, Tuple, TypeAlias, Any, Callable, Literal
 
 
-@dataclass
+@dataclass(slots=True)
 class Nil:
     pass
 
@@ -494,9 +494,9 @@ def call_with_empty_state(g: Goal) -> Stream:
 
 
 def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
-    n = f_fresh_vars.__code__.co_argcount
-    fresh_vars = (Var(i) for i in range(n))
-    state = State([], [], n)
+    n_vars = f_fresh_vars.__code__.co_argcount
+    fresh_vars = (Var(i) for i in range(n_vars))
+    state = State([], [], n_vars)
     return reify(take(n, f_fresh_vars(*fresh_vars)(state)))
 
 
