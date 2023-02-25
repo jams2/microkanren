@@ -5,11 +5,11 @@ be combined/mutated
 
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
-from typing import Union, Tuple, TypeAlias, Any, Callable, Literal
+from typing import Union, Tuple, TypeAlias, Any, Callable
 
 
 @dataclass(slots=True)
-class Nil:
+class nil:
     pass
 
 
@@ -22,18 +22,18 @@ class Char:
 
 
 @dataclass(slots=True, repr=False)
-class Cons:
+class cons:
     head: Any
-    tail: Any = Nil()
+    tail: Any = nil()
     is_proper: bool = False
 
-    def __init__(self, head, tail=Nil()):
+    def __init__(self, head, tail=nil()):
         self.head = head
         self.tail = tail
         match tail:
-            case Nil():
+            case nil():
                 self.is_proper = True
-            case Cons(_, _) as d if d.is_proper:
+            case cons(_, _) as d if d.is_proper:
                 self.is_proper = True
             case _:
                 self.is_proper = False
@@ -47,10 +47,10 @@ class Cons:
 
     @classmethod
     def from_python(cls, ls):
-        cons = Nil()
+        accum = nil()
         for x in reversed(ls):
-            cons = Cons(x, cons)
-        return cons
+            accum = cons(x, accum)
+        return accum
 
     def _to_str(self):
         return "".join(chr(char.i) for char in self._to_list())
@@ -58,7 +58,7 @@ class Cons:
     def _to_list(self):
         ls = [to_python(self.head)]
         cons = self.tail
-        while cons != Nil():
+        while cons != nil():
             ls.append(to_python(cons.head))
             cons = cons.tail
         return ls
@@ -72,14 +72,14 @@ class Cons:
 
 
 def string(cs):
-    return Cons.from_python([Char(ord(c)) for c in cs])
+    return cons.from_python([Char(ord(c)) for c in cs])
 
 
 def from_python(obj):
     if isinstance(obj, list):
-        return Cons.from_python(list(map(from_python, obj)))
+        return cons.from_python(list(map(from_python, obj)))
     elif isinstance(obj, dict):
-        return Cons.from_python(
+        return cons.from_python(
             [(from_python(k), from_python(v)) for k, v in obj.items()]
         )
     elif isinstance(obj, tuple):
@@ -90,12 +90,12 @@ def from_python(obj):
 
 
 def to_python(obj):
-    if obj == Nil():
+    if obj == nil():
         return []
-    elif isinstance(obj, Cons):
+    elif isinstance(obj, cons):
         if obj.is_proper:
             return obj.to_python()
-        return Cons(to_python(obj.head), to_python(obj.tail))
+        return cons(to_python(obj.head), to_python(obj.tail))
     elif isinstance(obj, tuple):
         return tuple(to_python(x) for x in obj)
     else:
@@ -115,7 +115,8 @@ class ReifiedVar:
         return f"_.{self.i}"
 
 
-Value: TypeAlias = Union[Var, int, str, bool, Tuple["Value", ...], Cons, Nil]
+Cons: TypeAlias = Union[cons, nil]
+Value: TypeAlias = Union[Var, int, str, bool, Tuple["Value", ...], Cons]
 Substitution: TypeAlias = list[tuple[Var, Value]]
 ConstraintStore: TypeAlias = list[list[tuple[Var, Value]]]
 
@@ -193,7 +194,7 @@ def occurs(x, v, s):
             return False
 
 
-def unify(u: Value, v: Value, s: Substitution) -> Substitution | Literal[None]:
+def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
     match walk(u, s), walk(v, s):
         case (Var(_) as vi, Var(_) as vj) if vi == vj:
             return s
@@ -201,7 +202,7 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | Literal[None]:
             return extend_substitution(var, val, s)
         case (val, Var(_) as var):
             return extend_substitution(var, val, s)
-        case Cons(x, xs), Cons(y, ys):
+        case cons(x, xs), cons(y, ys):
             s1 = unify(x, y, s)
             return unify(xs, ys, s1) if s1 is not None else None
         case tuple(xs), tuple(ys) if len(xs) == len(ys):
@@ -305,7 +306,7 @@ def verify_constraints(
     existing_constraints: ConstraintStore,
     verified_constraints: ConstraintStore,
     sub: Substitution,
-) -> ConstraintStore | Literal[None]:
+) -> ConstraintStore | None:
     if existing_constraints == []:
         return verified_constraints
     match unify_all(existing_constraints[0], sub):
@@ -341,8 +342,8 @@ def unify_all(constraint, sub: Substitution):
 
 
 def maybe_unify(
-    pair: Tuple[Value, Value], sub: Substitution | Literal[None]
-) -> Substitution | Literal[None]:
+    pair: Tuple[Value, Value], sub: Substitution | None
+) -> Substitution | None:
     if sub is None:
         return None
     u, v = pair
@@ -468,7 +469,7 @@ def reify(states: list[State]):
     return [reify_state(s, 0) for s in states]
 
 
-def reify_state(state: State, i: int = 0):
+def reify_state(state: State, i: int = 0) -> Value:
     v = walk_all(Var(i), state.sub)
     v = walk_all(v, reify_sub(v, []))
     return to_python(v)
@@ -479,19 +480,19 @@ def walk_all(v: Value, s: Substitution) -> Value:
     match v:
         case _ if isinstance(v, Var):
             return v
-        case Cons(a, d):
-            return Cons(walk_all(a, s), walk_all(d, s))
+        case cons(a, d):
+            return cons(walk_all(a, s), walk_all(d, s))
         case tuple(xs):
             return tuple(walk_all(x, s) for x in xs)
         case _:
             return v
 
 
-def reify_sub(v: Value, s: Substitution):
+def reify_sub(v: Value, s: Substitution) -> Substitution:
     v = walk(v, s)
     match v:
         case _ if isinstance(v, Var):
-            return [Cons(v, ReifiedVar(len(s))), *s]
+            return [(v, ReifiedVar(len(s))), *s]
         case (a, d):
             return reify_sub(d, reify_sub(a, s))
         case _:
@@ -539,15 +540,15 @@ def membero(x, xs):
 
 
 def nullo(x):
-    return eq(x, Nil())
+    return eq(x, nil())
 
 
 def notnullo(x):
-    return neq(x, Nil())
+    return neq(x, nil())
 
 
 def conso(a, d, ls):
-    return eq(Cons(a, d), ls)
+    return eq(cons(a, d), ls)
 
 
 def caro(a, xs):
@@ -565,7 +566,7 @@ def listo(xs):
 def inserto(x, ys, zs):
     def _inserto(state: State) -> Stream:
         return disj(
-            appendo(Cons(x, Nil()), ys, zs),
+            appendo(cons(x, nil()), ys, zs),
             fresh(
                 lambda a, d, res: conj(
                     eq((a, d), ys),
@@ -580,7 +581,7 @@ def inserto(x, ys, zs):
 
 def assoco(x, xs, y):
     return ifte(
-        eq(xs, Nil()),
+        eq(xs, nil()),
         fail(),
         fresh(
             lambda key, val, rest: disj(
