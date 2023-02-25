@@ -4,6 +4,7 @@ be combined/mutated
 """
 
 from dataclasses import dataclass
+from functools import reduce, update_wrapper, wraps
 from typing import Union, Tuple, TypeAlias, Any, Callable, Literal
 
 
@@ -131,7 +132,7 @@ class State:
 
 
 Stream: TypeAlias = Tuple[()] | Callable[[], "Stream"] | Tuple[State, "Stream"]
-
+Goal: TypeAlias = Callable[[State], Stream]
 
 mzero = ()
 
@@ -150,7 +151,7 @@ def mplus(s1: Stream, s2: Stream) -> Stream:
             return (t, mplus(s2, u))
 
 
-def bind(stream: Stream, g: "Goal") -> Stream:
+def bind(stream: Stream, g: Goal) -> Stream:
     match stream:
         case ():
             return mzero
@@ -216,7 +217,8 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | Literal[None]:
 
 
 class goal:
-    def __init__(self, goal_func: "Goal"):
+    def __init__(self, goal_func: Goal):
+        update_wrapper(self, goal_func)
         self.f = goal_func
 
     def __call__(self, state):
@@ -229,23 +231,18 @@ class goal:
         return _conj(self.f, other.f)
 
 
-Goal: TypeAlias = goal
-
-
 def succeed() -> Goal:
-    @goal
-    def succeed_goal(state):
+    def _succeed(state):
         return eq(True, True)(state)
 
-    return succeed_goal
+    return goal(_succeed)
 
 
 def fail() -> Goal:
-    @goal
-    def fail_goal(state):
+    def _fail(state):
         return eq(False, True)(state)
 
-    return fail_goal
+    return goal(_fail)
 
 
 def delay(g: Goal) -> Goal:
@@ -260,11 +257,10 @@ def disj(g: Goal, *goals: Goal) -> Goal:
 
 
 def _disj(g1: Goal, g2: Goal) -> Goal:
-    @goal
-    def disj_goal(state: State) -> Stream:
+    def __disj(state: State) -> Stream:
         return mplus(g1(state), g2(state))
 
-    return disj_goal
+    return goal(__disj)
 
 
 def conj(g: Goal, *goals: Goal) -> Goal:
@@ -275,19 +271,17 @@ def conj(g: Goal, *goals: Goal) -> Goal:
 
 
 def _conj(g1: Goal, g2: Goal) -> Goal:
-    @goal
-    def conj_goal(state: State) -> Stream:
+    def __conj(state: State) -> Stream:
         return bind(g1(state), g2)
 
-    return conj_goal
+    return goal(__conj)
 
 
 def eq(u: Value, v: Value) -> Goal:
-    @goal
-    def eq_goal(state: State) -> Stream:
+    def _eq(state: State) -> Stream:
         return verify_eq(unify(u, v, state.sub), state)
 
-    return eq_goal
+    return goal(_eq)
 
 
 def verify_eq(new_sub: Substitution, state: State) -> Stream:
@@ -346,12 +340,30 @@ def unify_all(constraint, sub: Substitution):
             return None
 
 
-def neq(u: Value, v: Value) -> Goal:
-    @goal
-    def neq_goal(state: State) -> Stream:
-        return verify_neq(unify(u, v, state.sub), state)
+def maybe_unify(
+    pair: Tuple[Value, Value], sub: Substitution | Literal[None]
+) -> Substitution | Literal[None]:
+    if sub is None:
+        return None
+    u, v = pair
+    return unify(u, v, sub)
 
-    return neq_goal
+
+def flip(f):
+    @wraps(f)
+    def _flipped(x, y):
+        return f(y, x)
+
+    return _flipped
+
+
+def neq(pair, *pairs) -> Goal:
+    def _neq(state: State) -> Stream:
+        u, v = pair
+        sub = reduce(flip(maybe_unify), pairs, unify(u, v, state.sub))
+        return verify_neq(sub, state)
+
+    return goal(_neq)
 
 
 def verify_neq(new_sub: Substitution, state: State) -> Stream:
@@ -383,11 +395,10 @@ def conda(*cases) -> Goal:
         else:
             _cases.append((case, succeed()))
 
-    @goal
-    def conda_goal(state: State) -> Stream:
+    def _conda(state: State) -> Stream:
         return starfoldr(ifte, _cases, fail())(state)
 
-    return conda_goal
+    return goal(_conda)
 
 
 def starfoldr(f, xs, initial):
@@ -403,8 +414,7 @@ def starfoldr(f, xs, initial):
 
 
 def ifte(g1, g2, g3=fail()) -> Goal:
-    @goal
-    def ifte_goal(state: State) -> Stream:
+    def _ifte(state: State) -> Stream:
         def ifte_loop(stream: Stream) -> Stream:
             match stream:
                 case ():
@@ -416,19 +426,18 @@ def ifte(g1, g2, g3=fail()) -> Goal:
 
         return ifte_loop(g1(state))
 
-    return ifte_goal
+    return goal(_ifte)
 
 
 def fresh(fp: Callable) -> Goal:
     n = fp.__code__.co_argcount
 
-    @goal
-    def fresh_goal(state: State) -> Stream:
+    def _fresh(state: State) -> Stream:
         i = state.var_count
         vs = (Var(j) for j in range(i, i + n))
         return fp(*vs)(State(state.sub, state.constraints, i + n))
 
-    return fresh_goal
+    return goal(_fresh)
 
 
 def pull(s: Stream):
@@ -501,9 +510,9 @@ def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
 
 
 def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
-    n = f_fresh_vars.__code__.co_argcount
-    fresh_vars = (Var(i) for i in range(n))
-    state = State([], [], n)
+    n_vars = f_fresh_vars.__code__.co_argcount
+    fresh_vars = (Var(i) for i in range(n_vars))
+    state = State([], [], n_vars)
     return reify(take_all(f_fresh_vars(*fresh_vars)(state)))
 
 
@@ -554,8 +563,7 @@ def listo(xs):
 
 
 def inserto(x, ys, zs):
-    @goal
-    def inserto_goal(state: State) -> Stream:
+    def _inserto(state: State) -> Stream:
         return disj(
             appendo(Cons(x, Nil()), ys, zs),
             fresh(
@@ -567,7 +575,7 @@ def inserto(x, ys, zs):
             ),
         )(state)
 
-    return inserto_goal
+    return goal(_inserto)
 
 
 def assoco(x, xs, y):
@@ -589,8 +597,7 @@ def assoco(x, xs, y):
 
 
 def rembero(x, xs, out):
-    @goal
-    def rembero_goal(state: State) -> Stream:
+    def _rembero(state: State) -> Stream:
         return disj(
             nullo(xs) & nullo(out),
             fresh(
@@ -606,7 +613,7 @@ def rembero(x, xs, out):
             ),
         )(state)
 
-    return rembero_goal
+    return goal(_rembero)
 
 
 def joino(prefix, suffix, sep, out):
