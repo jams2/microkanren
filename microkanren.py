@@ -102,12 +102,12 @@ def to_python(obj):
         return obj
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Var:
     i: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ReifiedVar:
     i: int
 
