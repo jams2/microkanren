@@ -8,7 +8,7 @@ set of the entire range
 
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
-from typing import Union, Tuple, TypeAlias, Any, Callable, Optional
+from typing import Union, Tuple, TypeAlias, Any, Callable, Optional, TypeVar
 
 
 @dataclass(slots=True)
@@ -323,7 +323,7 @@ def verify_eq(new_sub: Substitution, state: State) -> Stream:
         # Unification succeeded without new associations
         return unit(state)
 
-    # There are new associations, so we need to run the constraints
+    # There are new associations, so we need to run the disequality constraints
     remaining_neqs = run_disequality_constraints(state.neqs, [], new_sub)
     if remaining_neqs is None:
         # A constraint was violated by the new association
@@ -547,6 +547,36 @@ def process_prefix_fd(
     return _process_prefix_fd
 
 
+def enforce_constraints_fd(x: Var) -> Goal:
+    def _enforce_constraints(state: State) -> Stream:
+        bound_vars = [x[0] for x in state.domains]
+        # verify_all_bound(state.fd_cs, bound_vars)
+        return onceo(force_answer(bound_vars))(state)
+
+    return conj(force_answer(x), _enforce_constraints)
+
+
+def force_answer(x: Var | list[Var]) -> Goal:
+    def _force_answer(state: State) -> Stream:
+        match walk(x, state.sub):
+            case Var(_) as var if (d := state.get_domain(var)) is not None:
+                _, domain = d
+                return map_sum(lambda val: eq(x, val), domain)(state)
+            case [first, *rest]:
+                return disj(force_answer(first), force_answer(rest))(state)
+            case _:
+                return succeed()(state)
+
+    return _force_answer
+
+
+A = TypeVar("A")
+
+
+def map_sum(goal_constructor: Callable[[A], Goal], xs: list[A]) -> Goal:
+    return reduce(lambda accum, x: disj(accum, goal_constructor(x)), xs, fail())
+
+
 def get_sub_prefix(new_sub: Substitution, old_sub: Substitution) -> Substitution:
     if new_sub == old_sub:
         return []
@@ -593,6 +623,22 @@ def ifte(g1, g2, g3=fail()) -> Goal:
         return ifte_loop(g1(state))
 
     return goal(_ifte)
+
+
+def onceo(g: Goal) -> Goal:
+    def _onceo(state: State) -> Stream:
+        def onceo_loop(stream: Stream) -> Stream:
+            match stream:
+                case ():
+                    return mzero
+                case (s1, _):
+                    return unit(s1)
+                case _:
+                    return onceo_loop(stream())
+
+        return onceo_loop(g(state))
+
+    return _onceo
 
 
 def fresh(fp: Callable) -> Goal:
@@ -672,14 +718,16 @@ def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
     n_vars = f_fresh_vars.__code__.co_argcount
     fresh_vars = (Var(i) for i in range(n_vars))
     state = State.empty().update(var_count=n_vars)
-    return reify(take(n, f_fresh_vars(*fresh_vars)(state)))
+    enforce_constraints = enforce_constraints_fd(Var(0))
+    return reify(take(n, (f_fresh_vars(*fresh_vars) & enforce_constraints)(state)))
 
 
 def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
     n_vars = f_fresh_vars.__code__.co_argcount
     fresh_vars = (Var(i) for i in range(n_vars))
     state = State.empty().update(var_count=n_vars)
-    return reify(take_all(f_fresh_vars(*fresh_vars)(state)))
+    enforce_constraints = enforce_constraints_fd(Var(0))
+    return reify(take_all((f_fresh_vars(*fresh_vars) & enforce_constraints)(state)))
 
 
 def appendo(xs: Cons | Var, ys: Cons | Var, zs: Cons | Var) -> Goal:
