@@ -8,7 +8,7 @@ set of the entire range
 
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
-from typing import Union, Tuple, TypeAlias, Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, Tuple, TypeAlias, TypeVar, Union
 
 
 @dataclass(slots=True)
@@ -27,10 +27,10 @@ class Char:
 @dataclass(slots=True, repr=False)
 class cons:
     head: Any
-    tail: Any = nil()
+    tail: Any
     is_proper: bool = False
 
-    def __init__(self, head, tail=nil()):
+    def __init__(self, head, tail):
         self.head = head
         self.tail = tail
         match tail:
@@ -124,7 +124,7 @@ Substitution: TypeAlias = list[tuple[Var, Value]]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
 DomainStore: TypeAlias = list[tuple[Value, set[int]]]
 Constraint: TypeAlias = Callable[["State"], Optional["State"]]
-ConstraintStore: TypeAlias = list[Constraint]
+ConstraintStore: TypeAlias = list["FdConstraint"]
 
 
 @dataclass(slots=True)
@@ -151,11 +151,24 @@ class State:
         }
         return self.__class__(**state)
 
-    def get_domain(self, x: Value) -> tuple[Value, set[int]] | None:
-        return find(x, self.domains)
+    def get_domain(self, x: Value) -> set[int] | None:
+        match find(x, self.domains):
+            case None:
+                return None
+            case (Var(_), domain):
+                return domain
 
     def get_relevant_neqs(self, x: Var):
         return [c for c in self.neqs if find(x, c) is not None]
+
+
+@dataclass(slots=True)
+class FdConstraint:
+    func: Constraint
+    operands: list[Value]
+
+    def __call__(self, state: State) -> State | None:
+        return self.func(*self.operands)(state)
 
 
 Stream: TypeAlias = Tuple[()] | Callable[[], "Stream"] | Tuple[State, "Stream"]
@@ -199,7 +212,7 @@ def walk(u: Value, s: Substitution) -> Value:
 
 
 def find(x: Var, s: Substitution) -> tuple[Var, Value] | None:
-    for (var, value) in s:
+    for var, value in s:
         if var == x:
             return (var, value)
     return None
@@ -209,8 +222,14 @@ def extend_substitution(x: Var, v: Value, s: Substitution) -> Substitution:
     return [(x, v), *s]
 
 
-def extend_domain(x: Value, fd: set[int], d: DomainStore) -> DomainStore:
+def extend_domain_store(x: Value, fd: set[int], d: DomainStore) -> DomainStore:
     return [(x, fd), *d]
+
+
+def extend_constraint_store(
+    constraint: FdConstraint, c: ConstraintStore
+) -> ConstraintStore:
+    return [constraint, *c]
 
 
 def occurs(x, v, s):
@@ -218,7 +237,7 @@ def occurs(x, v, s):
     match v:
         case Var(_) as var:
             return var == x
-        case (a, d):
+        case (a, d) | cons(a, d):
             return occurs(x, a, s) or occurs(x, d, s)
         case _:
             return False
@@ -424,15 +443,6 @@ def verify_neq(new_sub: Substitution, state: State) -> Stream:
         return unit(state.update(neqs=[constraint, *state.neqs]))
 
 
-@dataclass(slots=True)
-class FdConstraint:
-    func: Constraint
-    operands: list[Value]
-
-    def __call__(self, state: State) -> State | None:
-        return self.func(state)
-
-
 def any_relevant_vars(operands, values):
     match operands:
         case Var(_) as v:
@@ -443,16 +453,45 @@ def any_relevant_vars(operands, values):
             return False
 
 
-def infd(x: Value, domain: set[int]) -> Goal:
-    def _infd(state: State) -> Stream:
+def domfd(x: Value, domain: set[int]) -> Goal:
+    def _domfd(state: State) -> Stream:
         match process_domain(x, domain)(state):
             case None:
                 return mzero
             case _ as s1:
                 return unit(s1)
-        return unit(state)
 
-    return goal(_infd)
+    return goal(_domfd)
+
+
+def ltefd(u: Value, v: Value) -> Goal:
+    def _ltefd(state: State) -> Stream:
+        match ltefdc(u, v)(state):
+            case None:
+                return mzero
+            case _ as s1:
+                return unit(s1)
+
+    return goal(_ltefd)
+
+
+def ltefdc(u: Value, v: Value) -> State | None:
+    def _ltefdc(state: State) -> Stream:
+        _u = walk(u, state.sub)
+        _v = walk(v, state.sub)
+        dom_u = state.get_domain(_u) if isinstance(_u, Var) else {_u}
+        dom_v = state.get_domain(_v) if isinstance(_v, Var) else {_v}
+        next_state = state.update(
+            fd_cs=extend_constraint_store(FdConstraint(ltefdc, [_u, _v]), state.fd_cs)
+        )
+        if dom_u and dom_v:
+            return compose_constraints(
+                process_domain(_u, {i for i in dom_u if i <= max(dom_v)}),
+                process_domain(_v, {i for i in dom_v if i >= min(dom_u)}),
+            )(next_state)
+        return state
+
+    return _ltefdc
 
 
 def process_domain(x: Value, domain: set[int]):
@@ -472,7 +511,7 @@ def process_domain(x: Value, domain: set[int]):
 
 def update_var_domain(x: Var, domain: set[int], state: State) -> State | None:
     match state.get_domain(x):
-        case (_, fd):
+        case fd if isinstance(fd, set):
             i = domain & fd
             if i:
                 return resolve_storable_domain(i, x, state)
@@ -487,7 +526,7 @@ def resolve_storable_domain(domain: set[int], x: Var, state: State) -> State | N
         n = domain.copy().pop()
         next_state = state.update(sub=extend_substitution(x, n, state.sub))
         return run_constraints([x], state.fd_cs)(next_state)
-    return state.update(domains=extend_domain(x, domain, state.domains))
+    return state.update(domains=extend_domain_store(x, domain, state.domains))
 
 
 def identity_constraint(state):
@@ -507,7 +546,7 @@ def run_constraints(xs: list, constraints: ConstraintStore):
         case []:
             return identity_constraint
         case [first, *rest]:
-            if any_relevant_vars(first, xs):
+            if any_relevant_vars(first.operands, xs):
                 return compose_constraints(
                     remove_and_run(first),
                     run_constraints(xs, rest),
@@ -538,9 +577,8 @@ def process_prefix_fd(
     )
 
     def _process_prefix_fd(state: State) -> State | None:
-        pair = state.get_domain(x)
-        if pair is not None:
-            _, domain_x = pair
+        domain_x = state.get_domain(x)
+        if domain_x is not None:
             return compose_constraints(process_domain(v, domain_x), t)(state)
         return t(state)
 
@@ -550,18 +588,33 @@ def process_prefix_fd(
 def enforce_constraints_fd(x: Var) -> Goal:
     def _enforce_constraints(state: State) -> Stream:
         bound_vars = [x[0] for x in state.domains]
-        # verify_all_bound(state.fd_cs, bound_vars)
+        verify_all_bound(state.fd_cs, bound_vars)
         return onceo(force_answer(bound_vars))(state)
 
     return conj(force_answer(x), _enforce_constraints)
+
+
+class UnboundConstrainedVariable(Exception):
+    pass
+
+
+def verify_all_bound(fd_cs: ConstraintStore, bound_vars: list[Var]):
+    if len(fd_cs) > 0:
+        first, *rest = fd_cs
+        var_operands = [x for x in first.operands if isinstance(x, Var)]
+        for var in var_operands:
+            if var not in bound_vars:
+                raise UnboundConstrainedVariable(
+                    f"Constrained variable {var} has no domain"
+                )
+        verify_all_bound(rest, bound_vars)
 
 
 def force_answer(x: Var | list[Var]) -> Goal:
     def _force_answer(state: State) -> Stream:
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
-                _, domain = d
-                return map_sum(lambda val: eq(x, val), domain)(state)
+                return map_sum(lambda val: eq(x, val), d)(state)
             case [first, *rest]:
                 return disj(force_answer(first), force_answer(rest))(state)
             case _:
