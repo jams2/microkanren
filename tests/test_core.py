@@ -32,10 +32,16 @@ class TestSubstitution:
 
     def test_get_sub_prefix(self):
         x = object()
-        a = pmap({Var(0): 1})
-        b = a.set(Var(1), Var(2))
-        c = b.set(Var(2), x)
-        assert get_sub_prefix(c, a) == pmap({Var(1): Var(2), Var(2): x})
+        initial = empty_sub()
+        a = extend_substitution(Var(0), 1, initial)
+        b = extend_substitution(
+            Var(2),
+            x,
+            extend_substitution(Var(1), Var(2), a),
+        )
+        assert set(get_sub_prefix(b, a).items()) == set(
+            pmap({Var(1): Var(2), Var(2): x}).items()
+        )
 
 
 class TestEq:

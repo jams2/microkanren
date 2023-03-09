@@ -180,6 +180,14 @@ class FdConstraint:
         return self.func(*self.operands)(state)
 
 
+def make_domain(*values: int) -> set[int]:
+    return set(values)
+
+
+def rangefd(start: int, end: int) -> set[int]:
+    return make_domain(*range(start, end + 1))
+
+
 Stream: TypeAlias = Tuple[()] | Callable[[], "Stream"] | Tuple[State, "Stream"]
 Goal: TypeAlias = Callable[[State], Stream]
 
@@ -425,7 +433,7 @@ def neq(pair, *pairs) -> Goal:
         u, v = pair
         # If unification of any of the pairs fails, that pair can never be unified,
         # so the constraint will always hold
-        # e.g. neq((x,1), (y,2)) in []: both unifications succeed, so the constraints
+        # e.g. neq((x,1), (y,2)) in empty sub: both unifications succeed, so the constraints
         # must be kept
         # e.g. neq((x,1), (y,2)) in [(x,2)]: the unification of (x,1) will fail,
         # meaning this unification will never succeed, so this constraint cannot be
@@ -487,19 +495,64 @@ def ltefdc(u: Value, v: Value) -> State | None:
     def _ltefdc(state: State) -> Stream:
         _u = walk(u, state.sub)
         _v = walk(v, state.sub)
-        dom_u = state.get_domain(_u) if isinstance(_u, Var) else {_u}
-        dom_v = state.get_domain(_v) if isinstance(_v, Var) else {_v}
+        dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
+        dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
         next_state = state.update(
             fd_cs=extend_constraint_store(FdConstraint(ltefdc, [_u, _v]), state.fd_cs)
         )
         if dom_u and dom_v:
+            max_v = max(dom_v)
+            min_u = min(dom_u)
             return compose_constraints(
-                process_domain(_u, {i for i in dom_u if i <= max(dom_v)}),
-                process_domain(_v, {i for i in dom_v if i >= min(dom_u)}),
+                process_domain(_u, make_domain(*(i for i in dom_u if i <= max_v))),
+                process_domain(_v, make_domain(*(i for i in dom_v if i >= min_u))),
             )(next_state)
         return state
 
     return _ltefdc
+
+
+def plusfd(u: Value, v: Value, w: Value):
+    def _plusfd(state: State) -> Stream:
+        match plusfdc(u, v, w)(state):
+            case None:
+                return mzero
+            case _ as s1:
+                return unit(s1)
+
+    return goal(_plusfd)
+
+
+def plusfdc(u: Value, v: Value, w: Value) -> State | None:
+    def _plusfdc(state: State) -> Stream:
+        _u = walk(u, state.sub)
+        _v = walk(v, state.sub)
+        _w = walk(w, state.sub)
+        dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
+        dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
+        dom_w = state.get_domain(_w) if isinstance(_w, Var) else make_domain(_w)
+        next_state = state.update(
+            fd_cs=extend_constraint_store(
+                FdConstraint(plusfdc, [_u, _v, _w]), state.fd_cs
+            )
+        )
+        if dom_u and dom_v and dom_w:
+            min_u = min(dom_u)
+            max_u = max(dom_u)
+            min_v = min(dom_v)
+            max_v = max(dom_v)
+            min_w = min(dom_w)
+            max_w = max(dom_w)
+            return compose_constraints(
+                process_domain(_w, rangefd(min_u + min_v, max_u + max_v)),
+                compose_constraints(
+                    process_domain(_u, rangefd(min_w - max_v, max_w - min_v)),
+                    process_domain(_v, rangefd(min_w - max_u, max_w - min_u)),
+                ),
+            )(next_state)
+        return state
+
+    return _plusfdc
 
 
 def process_domain(x: Value, domain: set[int]):
@@ -628,8 +681,8 @@ def force_answer(x: Var | list[Var]) -> Goal:
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
                 return map_sum(lambda val: eq(x, val), d)(state)
-            case [first, *rest]:
-                return disj(force_answer(first), force_answer(rest))(state)
+            case (first, *rest) | cons(first, rest):
+                return conj(force_answer(first), force_answer(rest))(state)
             case _:
                 return succeed()(state)
 
@@ -746,7 +799,7 @@ def reify(states: list[State]):
 
 def reify_state(state: State, i: int = 0) -> Value:
     v = walk_all(Var(i), state.sub)
-    v = walk_all(v, reify_sub(v, []))
+    v = walk_all(v, reify_sub(v, empty_sub()))
     return to_python(v)
 
 
@@ -757,8 +810,8 @@ def walk_all(v: Value, s: Substitution) -> Value:
             return v
         case cons(a, d):
             return cons(walk_all(a, s), walk_all(d, s))
-        case tuple(xs):
-            return tuple(walk_all(x, s) for x in xs)
+        case first, *rest:
+            return (walk_all(first, s), *walk_all(rest, s))
         case _:
             return v
 
@@ -767,7 +820,7 @@ def reify_sub(v: Value, s: Substitution) -> Substitution:
     v = walk(v, s)
     match v:
         case _ if isinstance(v, Var):
-            return [(v, ReifiedVar(len(s))), *s]
+            return extend_substitution(v, ReifiedVar(len(s)), s)
         case (a, d):
             return reify_sub(d, reify_sub(a, s))
         case _:
