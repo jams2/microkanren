@@ -13,6 +13,9 @@ classifiers = [
     "Operating System :: OS Independent",
     "Development Status :: 2 - Pre-Alpha",
 ]
+dependencies = [
+    "pyrsistent ~= 0.19"
+]
 
 [project.urls]
 "Homepage" = "https://github.com/jams2/microkanren"

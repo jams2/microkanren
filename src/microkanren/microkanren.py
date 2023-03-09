@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
 from typing import Any, Callable, Optional, Tuple, TypeAlias, TypeVar, Union
 
+from pyrsistent import pmap
+from pyrsistent.typing import PMap
+
+_null = object()
+
 
 @dataclass(slots=True)
 class nil:
@@ -105,7 +110,7 @@ def to_python(obj):
         return obj
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class Var:
     i: int
 
@@ -120,11 +125,15 @@ class ReifiedVar:
 
 Cons: TypeAlias = Union[cons, nil]
 Value: TypeAlias = Union[Var, int, str, bool, Tuple["Value", ...], Cons]
-Substitution: TypeAlias = list[tuple[Var, Value]]
+Substitution: TypeAlias = PMap[Var, Value]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
 DomainStore: TypeAlias = list[tuple[Value, set[int]]]
 Constraint: TypeAlias = Callable[["State"], Optional["State"]]
 ConstraintStore: TypeAlias = list["FdConstraint"]
+
+
+def empty_sub() -> Substitution:
+    return pmap()
 
 
 @dataclass(slots=True)
@@ -137,7 +146,7 @@ class State:
 
     @classmethod
     def empty(cls):
-        return cls([], [], [], [], 0)
+        return cls(empty_sub(), [], [], [], 0)
 
     def update(
         self, *, sub=None, neqs=None, domains=None, fd_cs=None, var_count=None
@@ -203,11 +212,10 @@ def bind(stream: Stream, g: Goal) -> Stream:
 
 def walk(u: Value, s: Substitution) -> Value:
     if isinstance(u, Var):
-        match find(u, s):
-            case (_, value):
-                return walk(value, s)
-            case _:
-                return u
+        bound = s.get(u, _null)
+        if bound is _null:
+            return u
+        return walk(bound, s)
     return u
 
 
@@ -219,7 +227,7 @@ def find(x: Var, s: Substitution) -> tuple[Var, Value] | None:
 
 
 def extend_substitution(x: Var, v: Value, s: Substitution) -> Substitution:
-    return [(x, v), *s]
+    return s.set(x, v)
 
 
 def extend_domain_store(x: Value, fd: set[int], d: DomainStore) -> DomainStore:
@@ -542,6 +550,8 @@ def compose_constraints(f, g):
 
 
 def run_constraints(xs: list, constraints: ConstraintStore):
+    # TODO: maybe store constraints as an inverse mapping of operands to constraints for more
+    # efficient access
     match constraints:
         case []:
             return identity_constraint
@@ -571,9 +581,10 @@ def process_prefix_fd(
 ) -> Callable[[State], State | None]:
     if not prefix:
         return identity_constraint
-    (x, v), *rest_prefix = prefix
+    (x, v), *_ = prefix.items()
     t = compose_constraints(
-        run_constraints([x], constraints), process_prefix_fd(rest_prefix, constraints)
+        run_constraints([x], constraints),
+        process_prefix_fd(prefix.remove(x), constraints),
     )
 
     def _process_prefix_fd(state: State) -> State | None:
@@ -631,9 +642,7 @@ def map_sum(goal_constructor: Callable[[A], Goal], xs: list[A]) -> Goal:
 
 
 def get_sub_prefix(new_sub: Substitution, old_sub: Substitution) -> Substitution:
-    if new_sub == old_sub:
-        return []
-    return [new_sub[0], *get_sub_prefix(new_sub[1:], old_sub)]
+    return pmap({k: v for k, v in new_sub.items() if k not in old_sub})
 
 
 def conda(*cases) -> Goal:
