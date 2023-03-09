@@ -5,7 +5,7 @@ from microkanren import domfd, eq, ltefd, run_all
 
 class TestFdConstraints:
     @pytest.mark.parametrize("domain", [{1, 2, 3}, {5, 7, 9}])
-    def test_infd(self, domain):
+    def test_domfd(self, domain):
         result = run_all(lambda x: domfd(x, domain))
         assert set(result) == domain
 

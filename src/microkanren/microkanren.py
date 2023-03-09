@@ -127,12 +127,16 @@ Cons: TypeAlias = Union[cons, nil]
 Value: TypeAlias = Union[Var, int, str, bool, Tuple["Value", ...], Cons]
 Substitution: TypeAlias = PMap[Var, Value]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
-DomainStore: TypeAlias = list[tuple[Value, set[int]]]
+DomainStore: TypeAlias = PMap[Var, set[int]]
 Constraint: TypeAlias = Callable[["State"], Optional["State"]]
 ConstraintStore: TypeAlias = list["FdConstraint"]
 
 
 def empty_sub() -> Substitution:
+    return pmap()
+
+
+def empty_domain_store() -> DomainStore:
     return pmap()
 
 
@@ -146,7 +150,7 @@ class State:
 
     @classmethod
     def empty(cls):
-        return cls(empty_sub(), [], [], [], 0)
+        return cls(empty_sub(), [], empty_domain_store(), [], 0)
 
     def update(
         self, *, sub=None, neqs=None, domains=None, fd_cs=None, var_count=None
@@ -160,12 +164,8 @@ class State:
         }
         return self.__class__(**state)
 
-    def get_domain(self, x: Value) -> set[int] | None:
-        match find(x, self.domains):
-            case None:
-                return None
-            case (Var(_), domain):
-                return domain
+    def get_domain(self, x: Var) -> set[int] | None:
+        return self.domains.get(x, None)
 
     def get_relevant_neqs(self, x: Var):
         return [c for c in self.neqs if find(x, c) is not None]
@@ -231,7 +231,7 @@ def extend_substitution(x: Var, v: Value, s: Substitution) -> Substitution:
 
 
 def extend_domain_store(x: Value, fd: set[int], d: DomainStore) -> DomainStore:
-    return [(x, fd), *d]
+    return d.set(x, fd)
 
 
 def extend_constraint_store(
@@ -590,6 +590,8 @@ def process_prefix_fd(
     def _process_prefix_fd(state: State) -> State | None:
         domain_x = state.get_domain(x)
         if domain_x is not None:
+            # We have a new association for x (as x is in prefix), and we found an existing
+            # domain for x. Check that the new association does not violate the fd constraint
             return compose_constraints(process_domain(v, domain_x), t)(state)
         return t(state)
 
@@ -598,7 +600,7 @@ def process_prefix_fd(
 
 def enforce_constraints_fd(x: Var) -> Goal:
     def _enforce_constraints(state: State) -> Stream:
-        bound_vars = [x[0] for x in state.domains]
+        bound_vars = state.domains.keys()
         verify_all_bound(state.fd_cs, bound_vars)
         return onceo(force_answer(bound_vars))(state)
 
