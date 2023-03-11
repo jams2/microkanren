@@ -1,6 +1,16 @@
 import pytest
 
-from microkanren import domfd, eq, ltefd, make_domain, neq, plusfd, rangefd, run_all
+from microkanren import (
+    domfd,
+    eq,
+    ltefd,
+    make_domain,
+    mkrange,
+    neq,
+    neqfd,
+    plusfd,
+    run_all,
+)
 
 
 class TestFdConstraints:
@@ -62,9 +72,9 @@ class TestFdConstraints:
 
     def test_plusfd(self):
         result = run_all(
-            lambda q, x, y, z: domfd(x, rangefd(1, 3))
-            & domfd(y, rangefd(1, 3))
-            & domfd(z, rangefd(1, 3))
+            lambda q, x, y, z: domfd(x, mkrange(1, 3))
+            & domfd(y, mkrange(1, 3))
+            & domfd(z, mkrange(1, 3))
             & plusfd(x, y, z)
             & eq(q, (x, y, z))
         )
@@ -72,11 +82,35 @@ class TestFdConstraints:
 
     def test_plusfd_with_ltefd(self):
         result = run_all(
-            lambda q, x, y, z: domfd(x, rangefd(1, 3))
-            & domfd(y, rangefd(1, 2))
-            & domfd(z, rangefd(1, 4))
+            lambda q, x, y, z: domfd(x, mkrange(1, 3))
+            & domfd(y, mkrange(1, 2))
+            & domfd(z, mkrange(1, 4))
             & plusfd(x, y, z)
             & ltefd(x, y)
             & eq(q, (x, y, z))
         )
         assert set(result) == {(1, 1, 2), (1, 2, 3), (2, 2, 4)}
+
+    @pytest.mark.parametrize(
+        "a,b,expected",
+        [
+            (make_domain(1), make_domain(1), set()),
+            (make_domain(1, 2, 3), make_domain(1), {2, 3}),
+            (make_domain(1, 2, 3), make_domain(3), {1, 2}),
+            (make_domain(4, 5, 6), make_domain(3), {4, 5, 6}),
+            (make_domain(4, 5, 6), make_domain(4, 5), {4, 5, 6}),
+        ],
+    )
+    def test_neqfd(self, a, b, expected):
+        result = run_all(lambda x, y: domfd(x, a) & domfd(y, b) & neqfd(x, y))
+        assert set(result) == expected
+
+    def test_neqfd_with_ltefd(self):
+        result = run_all(
+            lambda q, x, y: domfd(x, mkrange(2, 3))
+            & domfd(y, mkrange(1, 3))
+            & ltefd(x, y)
+            & neqfd(x, y)
+            & eq(q, (x, y))
+        )
+        assert set(result) == {(2, 3)}

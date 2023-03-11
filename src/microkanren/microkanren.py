@@ -184,7 +184,7 @@ def make_domain(*values: int) -> set[int]:
     return set(values)
 
 
-def rangefd(start: int, end: int) -> set[int]:
+def mkrange(start: int, end: int) -> set[int]:
     return make_domain(*range(start, end + 1))
 
 
@@ -544,15 +544,56 @@ def plusfdc(u: Value, v: Value, w: Value) -> State | None:
             min_w = min(dom_w)
             max_w = max(dom_w)
             return compose_constraints(
-                process_domain(_w, rangefd(min_u + min_v, max_u + max_v)),
+                process_domain(_w, mkrange(min_u + min_v, max_u + max_v)),
                 compose_constraints(
-                    process_domain(_u, rangefd(min_w - max_v, max_w - min_v)),
-                    process_domain(_v, rangefd(min_w - max_u, max_w - min_u)),
+                    process_domain(_u, mkrange(min_w - max_v, max_w - min_v)),
+                    process_domain(_v, mkrange(min_w - max_u, max_w - min_u)),
                 ),
             )(next_state)
         return state
 
     return _plusfdc
+
+
+def neqfd(u: Value, v: Value) -> Goal:
+    def _neqfd(state: State) -> Stream:
+        match neqfdc(u, v)(state):
+            case None:
+                return mzero
+            case _ as s1:
+                return unit(s1)
+
+    return goal(_neqfd)
+
+
+def neqfdc(u: Value, v: Value) -> State | None:
+    def _neqfdc(state: State) -> Stream:
+        _u = walk(u, state.sub)
+        _v = walk(v, state.sub)
+        dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
+        dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
+        if dom_u is None or dom_v is None:
+            return state.update(
+                fd_cs=extend_constraint_store(
+                    FdConstraint(neqfdc, [_u, _v]), state.fd_cs
+                )
+            )
+        elif len(dom_u) == 1 and len(dom_v) == 1 and dom_u == dom_v:
+            return None
+        elif dom_u.isdisjoint(dom_v):
+            return state
+
+        next_state = state.update(
+            fd_cs=extend_constraint_store(FdConstraint(neqfdc, [_u, _v]), state.fd_cs)
+        )
+        if len(dom_u) == 1:
+            return process_domain(_v, dom_v - dom_u)(next_state)
+        elif len(dom_v) == 1:
+            return process_domain(_u, dom_u - dom_v)(next_state)
+        else:
+            return next_state
+
+    return _neqfdc
 
 
 def process_domain(x: Value, domain: set[int]):
@@ -681,7 +722,7 @@ def force_answer(x: Var | list[Var]) -> Goal:
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
                 return map_sum(lambda val: eq(x, val), d)(state)
-            case (first, *rest) | cons(first, rest):
+            case (first, *rest):
                 return conj(force_answer(first), force_answer(rest))(state)
             case _:
                 return succeed()(state)
