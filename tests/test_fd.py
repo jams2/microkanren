@@ -6,6 +6,7 @@ from microkanren import (
     alldifffd,
     domfd,
     eq,
+    fresh,
     ltefd,
     make_domain,
     mkrange,
@@ -20,13 +21,13 @@ class TestFdConstraints:
     @pytest.mark.parametrize("domain", [make_domain(1, 2, 3), make_domain(5, 7, 9)])
     def test_domfd(self, domain):
         result = run_all(lambda x: domfd(x, domain))
-        assert set(result) == domain
+        assert set(result) == {(x,) for x in domain}
 
     @pytest.mark.parametrize(
         "a,b,intersection",
         [
-            (make_domain(1, 2), make_domain(1, 2), make_domain(1, 2)),
-            (make_domain(1, 2, 3), make_domain(2, 3, 4), make_domain(2, 3)),
+            (make_domain(1, 2), make_domain(1, 2), {(1,), (2,)}),
+            (make_domain(1, 2, 3), make_domain(2, 3, 4), {(2,), (3,)}),
             (make_domain(1, 2), make_domain(3, 4), make_domain()),
         ],
     )
@@ -39,7 +40,7 @@ class TestFdConstraints:
         assert result == []
 
     @pytest.mark.parametrize(
-        "a,b,expected",
+        "a,b,expected_x",
         [
             (make_domain(1, 2, 3, 4), make_domain(2, 3), make_domain(1, 2, 3)),
             (make_domain(4, 5), make_domain(1, 2), make_domain()),
@@ -48,9 +49,11 @@ class TestFdConstraints:
             (make_domain(1, 2, 3), make_domain(1, 2), make_domain(1, 2)),
         ],
     )
-    def test_ltefd(self, a, b, expected):
+    def test_ltefd(self, a, b, expected_x):
         result = run_all(lambda x, y: domfd(x, a) & domfd(y, b) & ltefd(x, y))
-        assert set(result) == expected
+        assert set(x[0] for x in result) == expected_x
+        for x, y in result:
+            assert x <= y
 
     @pytest.mark.xfail(reason="not implemented")
     def test_neq_with_domfd(self):
@@ -75,22 +78,20 @@ class TestFdConstraints:
 
     def test_plusfd(self):
         result = run_all(
-            lambda q, x, y, z: domfd(x, mkrange(1, 3))
+            lambda x, y, z: domfd(x, mkrange(1, 3))
             & domfd(y, mkrange(1, 3))
             & domfd(z, mkrange(1, 3))
             & plusfd(x, y, z)
-            & eq(q, (x, y, z))
         )
         assert set(result) == {(1, 1, 2), (1, 2, 3), (2, 1, 3)}
 
     def test_plusfd_with_ltefd(self):
         result = run_all(
-            lambda q, x, y, z: domfd(x, mkrange(1, 3))
+            lambda x, y, z: domfd(x, mkrange(1, 3))
             & domfd(y, mkrange(1, 2))
             & domfd(z, mkrange(1, 4))
             & plusfd(x, y, z)
             & ltefd(x, y)
-            & eq(q, (x, y, z))
         )
         assert set(result) == {(1, 1, 2), (1, 2, 3), (2, 2, 4)}
 
@@ -106,15 +107,16 @@ class TestFdConstraints:
     )
     def test_neqfd(self, a, b, expected):
         result = run_all(lambda x, y: domfd(x, a) & domfd(y, b) & neqfd(x, y))
-        assert set(result) == expected
+        assert set(x[0] for x in result) == expected
+        for x, y in result:
+            assert x != y
 
     def test_neqfd_with_ltefd(self):
         result = run_all(
-            lambda q, x, y: domfd(x, mkrange(2, 3))
+            lambda x, y: domfd(x, mkrange(2, 3))
             & domfd(y, mkrange(1, 3))
             & ltefd(x, y)
             & neqfd(x, y)
-            & eq(q, (x, y))
         )
         assert set(result) == {(2, 3)}
 
@@ -122,7 +124,7 @@ class TestFdConstraints:
         "a,b,expected",
         [
             (1, 1, []),
-            (2, 3, [2]),
+            (2, 3, [(2, 3)]),
         ],
     )
     def test_alldifffd_constants(self, a, b, expected):
@@ -142,18 +144,15 @@ class TestFdConstraints:
         ],
     )
     def test_alldifffd_domains(self, a, b, expected):
-        result = run_all(
-            lambda q, x, y: domfd(x, a) & domfd(y, b) & alldifffd(x, y) & eq(q, (x, y))
-        )
+        result = run_all(lambda x, y: domfd(x, a) & domfd(y, b) & alldifffd(x, y))
         assert set(result) == expected
 
     def test_alldifffd_many(self):
         result = run_all(
-            lambda q, w, x, y, z: domfd(w, mkrange(1, 4))
+            lambda w, x, y, z: domfd(w, mkrange(1, 4))
             & domfd(x, mkrange(1, 4))
             & domfd(y, mkrange(1, 4))
             & domfd(z, mkrange(1, 4))
             & alldifffd(w, x, y, z)
-            & eq(q, (w, x, y, z))
         )
         assert set(result) == set(permutations((1, 2, 3, 4), 4))

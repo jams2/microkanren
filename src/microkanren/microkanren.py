@@ -121,7 +121,7 @@ class Var:
     i: int
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class ReifiedVar:
     i: int
 
@@ -721,7 +721,7 @@ def compose_constraints(f, g):
     return _compose_constraints
 
 
-def run_constraints(xs: list, constraints: ConstraintStore):
+def run_constraints(xs: list, constraints: ConstraintStore) -> Constraint:
     # TODO: maybe store constraints as an inverse mapping of operands to constraints for more
     # efficient access
     match constraints:
@@ -748,9 +748,19 @@ def remove_and_run(constraint: FdConstraint) -> Constraint:
     return _remove_and_run
 
 
-def process_prefix_fd(
+def process_prefix_neq(
     prefix: Substitution, constraints: ConstraintStore
-) -> Callable[[State], State | None]:
+) -> Constraint:
+    prefix_vars = {x for x in prefix.keys() if isinstance(x, Var)}
+    prefix_vars.update({x for x in prefix.values() if isinstance(x, Var)})
+    return run_constraints(prefix_vars, constraints)
+
+
+def enforce_constraints_neq(_) -> Goal:
+    return lambda state: state
+
+
+def process_prefix_fd(prefix: Substitution, constraints: ConstraintStore) -> Constraint:
     if not prefix:
         return identity_constraint
     (x, v), *_ = prefix.items()
@@ -912,12 +922,12 @@ def take(n, s: Stream) -> list[State]:
     return [first, *take(n - 1, rest)]
 
 
-def reify(states: list[State]):
-    return [reify_state(s, 0) for s in states]
+def reify(states: list[State], *top_level_vars: Var):
+    return [tuple(reify_state(s, var) for var in top_level_vars) for s in states]
 
 
-def reify_state(state: State, i: int = 0) -> Value:
-    v = walk_all(Var(i), state.sub)
+def reify_state(state: State, v: Var) -> Value:
+    v = walk_all(v, state.sub)
     v = walk_all(v, reify_sub(v, empty_sub()))
     return to_python(v)
 
@@ -936,6 +946,7 @@ def walk_all(v: Value, s: Substitution) -> Value:
 
 
 def reify_sub(v: Value, s: Substitution) -> Substitution:
+    # Allows us to control how fresh Vars are reified
     v = walk(v, s)
     match v:
         case _ if isinstance(v, Var):
@@ -952,15 +963,39 @@ def call_with_empty_state(g: Goal) -> Stream:
 
 def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
     n_vars = f_fresh_vars.__code__.co_argcount
-    fresh_vars = (Var(i) for i in range(n_vars))
+    fresh_vars = tuple(Var(i) for i in range(n_vars))
     state = State.empty().update(var_count=n_vars)
-    enforce_constraints = enforce_constraints_fd(Var(0))
-    return reify(take(n, (f_fresh_vars(*fresh_vars) & enforce_constraints)(state)))
+    goal = conj(
+        f_fresh_vars(*fresh_vars),
+        *map(enforce_constraints, fresh_vars),
+    )
+    return reify(take(n, goal(state)), fresh_vars)
 
 
 def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
     n_vars = f_fresh_vars.__code__.co_argcount
-    fresh_vars = (Var(i) for i in range(n_vars))
+    fresh_vars = tuple(Var(i) for i in range(n_vars))
     state = State.empty().update(var_count=n_vars)
-    enforce_constraints = enforce_constraints_fd(Var(0))
-    return reify(take_all((f_fresh_vars(*fresh_vars) & enforce_constraints)(state)))
+    goal = conj(
+        f_fresh_vars(*fresh_vars),
+        *map(enforce_constraints, fresh_vars),
+    )
+    return reify(take_all(goal(state)), *fresh_vars)
+
+
+def process_prefix(prefix: Substitution, constraints: ConstraintStore) -> Constraint:
+    return compose_constraints(
+        process_prefix_neq(prefix, constraints),
+        process_prefix_fd(prefix, constraints),
+    )
+
+
+def enforce_constraints(x: Var):
+    return compose_constraints(
+        enforce_constraints_neq(x),
+        enforce_constraints_fd(x),
+    )
+
+
+def reify_constraints():
+    return identity_constraint
