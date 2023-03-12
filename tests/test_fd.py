@@ -1,6 +1,9 @@
+from itertools import permutations
+
 import pytest
 
 from microkanren import (
+    alldifffd,
     domfd,
     eq,
     ltefd,
@@ -114,3 +117,43 @@ class TestFdConstraints:
             & eq(q, (x, y))
         )
         assert set(result) == {(2, 3)}
+
+    @pytest.mark.parametrize(
+        "a,b,expected",
+        [
+            (1, 1, []),
+            (2, 3, [2]),
+        ],
+    )
+    def test_alldifffd_constants(self, a, b, expected):
+        result = run_all(lambda x, y: eq(x, a) & eq(y, b) & alldifffd(x, y))
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        "a,b,expected",
+        [
+            (make_domain(1, 2), make_domain(1, 2), {(1, 2), (2, 1)}),
+            (make_domain(2), make_domain(1, 2, 3), {(2, 1), (2, 3)}),
+            (
+                make_domain(7, 9, 11),
+                make_domain(1, 11),
+                {(7, 1), (9, 1), (11, 1), (7, 11), (9, 11)},
+            ),
+        ],
+    )
+    def test_alldifffd_domains(self, a, b, expected):
+        result = run_all(
+            lambda q, x, y: domfd(x, a) & domfd(y, b) & alldifffd(x, y) & eq(q, (x, y))
+        )
+        assert set(result) == expected
+
+    def test_alldifffd_many(self):
+        result = run_all(
+            lambda q, w, x, y, z: domfd(w, mkrange(1, 4))
+            & domfd(x, mkrange(1, 4))
+            & domfd(y, mkrange(1, 4))
+            & domfd(z, mkrange(1, 4))
+            & alldifffd(w, x, y, z)
+            & eq(q, (w, x, y, z))
+        )
+        assert set(result) == set(permutations((1, 2, 3, 4), 4))

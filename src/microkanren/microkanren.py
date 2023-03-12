@@ -8,12 +8,18 @@ set of the entire range
 
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
+from itertools import filterfalse, tee
 from typing import Any, Callable, Optional, Tuple, TypeAlias, TypeVar, Union
 
 from pyrsistent import pmap
 from pyrsistent.typing import PMap
 
 _null = object()
+
+
+def partition(pred, iterable):
+    t1, t2 = tee(iterable)
+    return filter(pred, t1), filterfalse(pred, t2)
 
 
 @dataclass(slots=True)
@@ -491,8 +497,8 @@ def ltefd(u: Value, v: Value) -> Goal:
     return goal(_ltefd)
 
 
-def ltefdc(u: Value, v: Value) -> State | None:
-    def _ltefdc(state: State) -> Stream:
+def ltefdc(u: Value, v: Value) -> Constraint:
+    def _ltefdc(state: State) -> State | None:
         _u = walk(u, state.sub)
         _v = walk(v, state.sub)
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
@@ -523,8 +529,8 @@ def plusfd(u: Value, v: Value, w: Value):
     return goal(_plusfd)
 
 
-def plusfdc(u: Value, v: Value, w: Value) -> State | None:
-    def _plusfdc(state: State) -> Stream:
+def plusfdc(u: Value, v: Value, w: Value) -> Constraint:
+    def _plusfdc(state: State) -> State | None:
         _u = walk(u, state.sub)
         _v = walk(v, state.sub)
         _w = walk(w, state.sub)
@@ -566,8 +572,8 @@ def neqfd(u: Value, v: Value) -> Goal:
     return goal(_neqfd)
 
 
-def neqfdc(u: Value, v: Value) -> State | None:
-    def _neqfdc(state: State) -> Stream:
+def neqfdc(u: Value, v: Value) -> Constraint:
+    def _neqfdc(state: State) -> State | None:
         _u = walk(u, state.sub)
         _v = walk(v, state.sub)
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
@@ -594,6 +600,78 @@ def neqfdc(u: Value, v: Value) -> State | None:
             return next_state
 
     return _neqfdc
+
+
+def alldifffd(*vs: Value) -> Goal:
+    def _alldifffd(state: State) -> Stream:
+        match alldifffdc(*vs)(state):
+            case None:
+                return mzero
+            case _ as s1:
+                return unit(s1)
+
+    return goal(_alldifffd)
+
+
+def alldifffdc(*vs: Value) -> Constraint:
+    def _alldifffdc(state: State) -> State | None:
+        unresolved, values = partition(lambda v: isinstance(v, Var), vs)
+        unresolved = list(unresolved)
+        values = list(values)
+        values_domain = make_domain(*values)
+        if len(values) == len(values_domain):
+            return alldifffdc_resolve(unresolved, values_domain)(state)
+        return None
+
+    return _alldifffdc
+
+
+def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> Constraint:
+    def _alldifffdc_resolve(state: State) -> State | None:
+        nonlocal values
+        values = values.copy()
+        remains_unresolved = []
+        for var in unresolved:
+            v = walk(var, state.sub)
+            if isinstance(v, Var):
+                remains_unresolved.append(v)
+            elif is_domain_member(v, values):
+                return None
+            else:
+                values.add(v)
+
+        next_state = state.update(
+            fd_cs=extend_constraint_store(
+                FdConstraint(alldifffdc_resolve, [remains_unresolved, values]),
+                state.fd_cs,
+            )
+        )
+        return exclude_from_domains(remains_unresolved, values)(next_state)
+
+    return _alldifffdc_resolve
+
+
+def exclude_from_domains(vs: list[Var], values: set[Value]) -> Constraint:
+    """
+    For each Var in vs, remove all values in values from its domain.
+    """
+
+    def _exclude_from_domains(state: State) -> State | None:
+        with_domains = (
+            (var, dom) for var in vs if (dom := state.get_domain(var)) is not None
+        )
+        constraint = reduce(
+            compose_constraints,
+            (process_domain(var, dom - values) for var, dom in with_domains),
+            identity_constraint,
+        )
+        return constraint(state)
+
+    return _exclude_from_domains
+
+
+def is_domain_member(v: Value, dom: set[int]) -> bool:
+    return isinstance(v, int) and v in dom
 
 
 def process_domain(x: Value, domain: set[int]):
