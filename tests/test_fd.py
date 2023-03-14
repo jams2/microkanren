@@ -55,15 +55,13 @@ class TestFdConstraints:
         for x, y in result:
             assert x <= y
 
-    @pytest.mark.xfail(reason="not implemented")
     def test_neq_with_domfd(self):
         """
         If neq(x, n), then n cannot be in the domain of x.
         """
         result = run_all(lambda x: domfd(x, make_domain(1, 2, 3)) & neq((x, 2)))
-        assert set(result) == make_domain(1, 3)
+        assert set(result) == {(1,), (3,)}
 
-    @pytest.mark.xfail(reason="not implemented")
     def test_neq_with_ltefd(self):
         """
         If neq(x, n), then n cannot be in the domain of x.
@@ -74,7 +72,7 @@ class TestFdConstraints:
             & ltefd(x, y)
             & neq((x, 1))
         )
-        assert result == [2]
+        assert result == [(2, 2)]
 
     def test_plusfd(self):
         result = run_all(

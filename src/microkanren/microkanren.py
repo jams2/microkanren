@@ -134,8 +134,8 @@ Value: TypeAlias = Union[Var, int, str, bool, Tuple["Value", ...], Cons]
 Substitution: TypeAlias = PMap[Var, Value]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
 DomainStore: TypeAlias = PMap[Var, set[int]]
-Constraint: TypeAlias = Callable[["State"], Optional["State"]]
-ConstraintStore: TypeAlias = list["FdConstraint"]
+ConstraintFunction: TypeAlias = Callable[["State"], Optional["State"]]
+ConstraintStore: TypeAlias = list["Constraint"]
 
 
 def empty_sub() -> Substitution:
@@ -149,23 +149,21 @@ def empty_domain_store() -> DomainStore:
 @dataclass(slots=True)
 class State:
     sub: Substitution
-    neqs: NeqStore
     domains: DomainStore
-    fd_cs: ConstraintStore
+    constraints: ConstraintStore
     var_count: int
 
     @classmethod
     def empty(cls):
-        return cls(empty_sub(), [], empty_domain_store(), [], 0)
+        return cls(empty_sub(), empty_domain_store(), [], 0)
 
     def update(
-        self, *, sub=None, neqs=None, domains=None, fd_cs=None, var_count=None
+        self, *, sub=None, domains=None, constraints=None, var_count=None
     ) -> "State":
         state = {
             "sub": self.sub if sub is None else sub,
-            "neqs": self.neqs if neqs is None else neqs,
             "domains": self.domains if domains is None else domains,
-            "fd_cs": self.fd_cs if fd_cs is None else fd_cs,
+            "constraints": self.constraints if constraints is None else constraints,
             "var_count": self.var_count if var_count is None else var_count,
         }
         return self.__class__(**state)
@@ -178,8 +176,8 @@ class State:
 
 
 @dataclass(slots=True)
-class FdConstraint:
-    func: Constraint
+class Constraint:
+    func: Callable[[Value, ...], ConstraintFunction]
     operands: list[Value]
 
     def __call__(self, state: State) -> State | None:
@@ -249,7 +247,7 @@ def extend_domain_store(x: Value, fd: set[int], d: DomainStore) -> DomainStore:
 
 
 def extend_constraint_store(
-    constraint: FdConstraint, c: ConstraintStore
+    constraint: Constraint, c: ConstraintStore
 ) -> ConstraintStore:
     return [constraint, *c]
 
@@ -351,55 +349,29 @@ def _conj(g1: Goal, g2: Goal) -> Goal:
 
 def eq(u: Value, v: Value) -> Goal:
     def _eq(state: State) -> Stream:
-        return verify_eq(unify(u, v, state.sub), state)
+        match eqc(u, v)(state):
+            case None:
+                return mzero
+            case s:
+                return unit(s)
 
     return goal(_eq)
 
 
-def verify_eq(new_sub: Substitution, state: State) -> Stream:
-    if new_sub is None:
-        # Unification failed
-        return mzero
-    elif new_sub == state.sub:
-        # Unification succeeded without new associations
-        return unit(state)
-
-    # There are new associations, so we need to run the disequality constraints
-    remaining_neqs = run_disequality_constraints(state.neqs, [], new_sub)
-    if remaining_neqs is None:
-        # A constraint was violated by the new association
-        return mzero
-
-    state_1 = state.update(sub=new_sub, neqs=remaining_neqs)
-    prefix = get_sub_prefix(new_sub, state.sub)
-    state_2 = process_prefix_fd(prefix, state_1.fd_cs)(state_1)
-    return mzero if state_2 is None else unit(state_2)
-
-
-def run_disequality_constraints(
-    existing_constraints: NeqStore,
-    remaining_constraints: NeqStore,
-    sub: Substitution,
-) -> NeqStore | None:
-    if existing_constraints == []:
-        return remaining_constraints
-    match unify_all(existing_constraints[0], sub):
-        case None:
-            # Unification failed, the constraint holds, discard it and continue
-            return run_disequality_constraints(
-                existing_constraints[1:], remaining_constraints, sub
-            )
-        case new_sub if new_sub == sub:
-            # No new associations were made as a result of unification
-            # therefore the the values were equal, violating constraints
+def eqc(u: Value, v: Value) -> ConstraintFunction:
+    def _eqc(state: State) -> State | None:
+        new_sub = unify(u, v, state.sub)
+        if new_sub is None:
+            # Unification failed
             return None
-        case new_sub:
-            # New associations were added to the sub - constraints were simplified,
-            # made more concrete, etc. Keep the simplified constraints and continue
-            constraints = get_sub_prefix(new_sub, sub)
-            return run_disequality_constraints(
-                constraints[1:], [constraints, *remaining_constraints], sub
-            )
+        elif new_sub == state.sub:
+            # Unification succeeded without new associations
+            return state
+        else:
+            prefix = get_sub_prefix(new_sub, state.sub)
+            return process_prefix(prefix, state.constraints)(state.update(sub=new_sub))
+
+    return _eqc
 
 
 def unify_all(
@@ -434,35 +406,34 @@ def flip(f):
     return _flipped
 
 
-def neq(pair, *pairs) -> Goal:
+def neq(*pairs) -> Goal:
     def _neq(state: State) -> Stream:
-        u, v = pair
-        # If unification of any of the pairs fails, that pair can never be unified,
-        # so the constraint will always hold
-        # e.g. neq((x,1), (y,2)) in empty sub: both unifications succeed, so the constraints
-        # must be kept
-        # e.g. neq((x,1), (y,2)) in [(x,2)]: the unification of (x,1) will fail,
-        # meaning this unification will never succeed, so this constraint cannot be
-        # violated
-        sub = reduce(flip(maybe_unify), pairs, unify(u, v, state.sub))
-        return verify_neq(sub, state)
+        match neqc(pairs)(state):
+            case None:
+                return mzero
+            case s:
+                return unit(s)
 
     return goal(_neq)
 
 
-def verify_neq(new_sub: Substitution, state: State) -> Stream:
-    if new_sub is None:
-        # The unification failed: u and v cannot be unified, the disequality
-        # constraint can never be violated
-        return unit(state)
-    elif new_sub == state.sub:
-        # The sub has not been extended: u == v, violating the constraint
-        return mzero
-    else:
-        # A new mapping was added to the constraint: the constraint has not yet
-        # been violated, but may be in future
-        constraint = get_sub_prefix(new_sub, state.sub)
-        return unit(state.update(neqs=[constraint, *state.neqs]))
+def neqc(pairs: tuple[tuple[Value, Value], ...]) -> ConstraintFunction:
+    def _neqc(state: State) -> State | None:
+        (u, v), *rest = pairs
+        new_sub = reduce(flip(maybe_unify), rest, unify(u, v, state.sub))
+        if new_sub is None:
+            return state
+        elif new_sub == state.sub:
+            return None
+        prefix = get_sub_prefix(new_sub, state.sub)
+        remaining_pairs = [x for x in prefix.items()]
+        return state.update(
+            constraints=extend_constraint_store(
+                Constraint(neqc, [remaining_pairs]), state.constraints
+            )
+        )
+
+    return _neqc
 
 
 def any_relevant_vars(operands, values):
@@ -497,14 +468,16 @@ def ltefd(u: Value, v: Value) -> Goal:
     return goal(_ltefd)
 
 
-def ltefdc(u: Value, v: Value) -> Constraint:
+def ltefdc(u: Value, v: Value) -> ConstraintFunction:
     def _ltefdc(state: State) -> State | None:
         _u = walk(u, state.sub)
         _v = walk(v, state.sub)
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
         next_state = state.update(
-            fd_cs=extend_constraint_store(FdConstraint(ltefdc, [_u, _v]), state.fd_cs)
+            constraints=extend_constraint_store(
+                Constraint(ltefdc, [_u, _v]), state.constraints
+            )
         )
         if dom_u and dom_v:
             max_v = max(dom_v)
@@ -529,7 +502,7 @@ def plusfd(u: Value, v: Value, w: Value):
     return goal(_plusfd)
 
 
-def plusfdc(u: Value, v: Value, w: Value) -> Constraint:
+def plusfdc(u: Value, v: Value, w: Value) -> ConstraintFunction:
     def _plusfdc(state: State) -> State | None:
         _u = walk(u, state.sub)
         _v = walk(v, state.sub)
@@ -538,8 +511,8 @@ def plusfdc(u: Value, v: Value, w: Value) -> Constraint:
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
         dom_w = state.get_domain(_w) if isinstance(_w, Var) else make_domain(_w)
         next_state = state.update(
-            fd_cs=extend_constraint_store(
-                FdConstraint(plusfdc, [_u, _v, _w]), state.fd_cs
+            constraints=extend_constraint_store(
+                Constraint(plusfdc, [_u, _v, _w]), state.constraints
             )
         )
         if dom_u and dom_v and dom_w:
@@ -572,7 +545,7 @@ def neqfd(u: Value, v: Value) -> Goal:
     return goal(_neqfd)
 
 
-def neqfdc(u: Value, v: Value) -> Constraint:
+def neqfdc(u: Value, v: Value) -> ConstraintFunction:
     def _neqfdc(state: State) -> State | None:
         _u = walk(u, state.sub)
         _v = walk(v, state.sub)
@@ -580,8 +553,8 @@ def neqfdc(u: Value, v: Value) -> Constraint:
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
         if dom_u is None or dom_v is None:
             return state.update(
-                fd_cs=extend_constraint_store(
-                    FdConstraint(neqfdc, [_u, _v]), state.fd_cs
+                constraints=extend_constraint_store(
+                    Constraint(neqfdc, [_u, _v]), state.constraints
                 )
             )
         elif len(dom_u) == 1 and len(dom_v) == 1 and dom_u == dom_v:
@@ -590,7 +563,9 @@ def neqfdc(u: Value, v: Value) -> Constraint:
             return state
 
         next_state = state.update(
-            fd_cs=extend_constraint_store(FdConstraint(neqfdc, [_u, _v]), state.fd_cs)
+            constraints=extend_constraint_store(
+                Constraint(neqfdc, [_u, _v]), state.constraints
+            )
         )
         if len(dom_u) == 1:
             return process_domain(_v, dom_v - dom_u)(next_state)
@@ -613,7 +588,7 @@ def alldifffd(*vs: Value) -> Goal:
     return goal(_alldifffd)
 
 
-def alldifffdc(*vs: Value) -> Constraint:
+def alldifffdc(*vs: Value) -> ConstraintFunction:
     def _alldifffdc(state: State) -> State | None:
         unresolved, values = partition(lambda v: isinstance(v, Var), vs)
         unresolved = list(unresolved)
@@ -626,7 +601,7 @@ def alldifffdc(*vs: Value) -> Constraint:
     return _alldifffdc
 
 
-def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> Constraint:
+def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> ConstraintFunction:
     def _alldifffdc_resolve(state: State) -> State | None:
         nonlocal values
         values = values.copy()
@@ -641,9 +616,9 @@ def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> Constraint:
                 values.add(v)
 
         next_state = state.update(
-            fd_cs=extend_constraint_store(
-                FdConstraint(alldifffdc_resolve, [remains_unresolved, values]),
-                state.fd_cs,
+            constraints=extend_constraint_store(
+                Constraint(alldifffdc_resolve, [remains_unresolved, values]),
+                state.constraints,
             )
         )
         return exclude_from_domains(remains_unresolved, values)(next_state)
@@ -651,7 +626,7 @@ def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> Constraint:
     return _alldifffdc_resolve
 
 
-def exclude_from_domains(vs: list[Var], values: set[Value]) -> Constraint:
+def exclude_from_domains(vs: list[Var], values: set[Value]) -> ConstraintFunction:
     """
     For each Var in vs, remove all values in values from its domain.
     """
@@ -705,7 +680,7 @@ def resolve_storable_domain(domain: set[int], x: Var, state: State) -> State | N
     if len(domain) == 1:
         n = domain.copy().pop()
         next_state = state.update(sub=extend_substitution(x, n, state.sub))
-        return run_constraints([x], state.fd_cs)(next_state)
+        return run_constraints([x], state.constraints)(next_state)
     return state.update(domains=extend_domain_store(x, domain, state.domains))
 
 
@@ -721,7 +696,7 @@ def compose_constraints(f, g):
     return _compose_constraints
 
 
-def run_constraints(xs: list, constraints: ConstraintStore) -> Constraint:
+def run_constraints(xs: list, constraints: ConstraintStore) -> ConstraintFunction:
     # TODO: maybe store constraints as an inverse mapping of operands to constraints for more
     # efficient access
     match constraints:
@@ -737,11 +712,11 @@ def run_constraints(xs: list, constraints: ConstraintStore) -> Constraint:
                 return run_constraints(xs, rest)
 
 
-def remove_and_run(constraint: FdConstraint) -> Constraint:
+def remove_and_run(constraint: Constraint) -> ConstraintFunction:
     def _remove_and_run(state: State) -> State | None:
-        if constraint in state.fd_cs:
-            fd_cs = [x for x in state.fd_cs if x != constraint]
-            return constraint(state.update(fd_cs=fd_cs))
+        if constraint in state.constraints:
+            constraints = [x for x in state.constraints if x != constraint]
+            return constraint(state.update(constraints=constraints))
         else:
             return state
 
@@ -750,17 +725,26 @@ def remove_and_run(constraint: FdConstraint) -> Constraint:
 
 def process_prefix_neq(
     prefix: Substitution, constraints: ConstraintStore
-) -> Constraint:
+) -> ConstraintFunction:
     prefix_vars = {x for x in prefix.keys() if isinstance(x, Var)}
     prefix_vars.update({x for x in prefix.values() if isinstance(x, Var)})
     return run_constraints(prefix_vars, constraints)
 
 
-def enforce_constraints_neq(_) -> Goal:
+def enforce_constraints_neq(_) -> ConstraintFunction:
     return lambda state: state
 
 
-def process_prefix_fd(prefix: Substitution, constraints: ConstraintStore) -> Constraint:
+def reify_constraints_neq(x: Var, r: Substitution) -> Goal:
+    def _reify_constraints_neq(state: State):
+        return state
+
+    return _reify_constraints_neq
+
+
+def process_prefix_fd(
+    prefix: Substitution, constraints: ConstraintStore
+) -> ConstraintFunction:
     if not prefix:
         return identity_constraint
     (x, v), *_ = prefix.items()
@@ -783,19 +767,32 @@ def process_prefix_fd(prefix: Substitution, constraints: ConstraintStore) -> Con
 def enforce_constraints_fd(x: Var) -> Goal:
     def _enforce_constraints(state: State) -> Stream:
         bound_vars = state.domains.keys()
-        verify_all_bound(state.fd_cs, bound_vars)
+        verify_all_bound(state.constraints, bound_vars)
         return onceo(force_answer(bound_vars))(state)
 
     return conj(force_answer(x), _enforce_constraints)
+
+
+# TODO
+def reify_constraints_fd(x: Var, r: Substitution) -> ConstraintFunction:
+    def _reify_constraints_fd(state: State) -> Stream:
+        return state
+        # raise UnboundVariables()
+
+    return _reify_constraints_fd
 
 
 class UnboundConstrainedVariable(Exception):
     pass
 
 
-def verify_all_bound(fd_cs: ConstraintStore, bound_vars: list[Var]):
-    if len(fd_cs) > 0:
-        first, *rest = fd_cs
+class UnboundVariables(Exception):
+    pass
+
+
+def verify_all_bound(constraints: ConstraintStore, bound_vars: list[Var]):
+    if len(constraints) > 0:
+        first, *rest = constraints
         var_operands = [x for x in first.operands if isinstance(x, Var)]
         for var in var_operands:
             if var not in bound_vars:
@@ -928,8 +925,12 @@ def reify(states: list[State], *top_level_vars: Var):
 
 def reify_state(state: State, v: Var) -> Value:
     v = walk_all(v, state.sub)
-    v = walk_all(v, reify_sub(v, empty_sub()))
+    r = reify_sub(v, empty_sub())
+    v = walk_all(v, r)
     return to_python(v)
+    if len(state.constraints) == 0:
+        return to_python(v)
+    return to_python(reify_constraints(v, r)(state))
 
 
 def walk_all(v: Value, s: Substitution) -> Value:
@@ -983,7 +984,9 @@ def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
     return reify(take_all(goal(state)), *fresh_vars)
 
 
-def process_prefix(prefix: Substitution, constraints: ConstraintStore) -> Constraint:
+def process_prefix(
+    prefix: Substitution, constraints: ConstraintStore
+) -> ConstraintFunction:
     return compose_constraints(
         process_prefix_neq(prefix, constraints),
         process_prefix_fd(prefix, constraints),
@@ -997,5 +1000,8 @@ def enforce_constraints(x: Var):
     )
 
 
-def reify_constraints():
-    return identity_constraint
+def reify_constraints(x: Value, s: Substitution):
+    return compose_constraints(
+        reify_constraints_neq(x, s),
+        reify_constraints_fd(x, s),
+    )
