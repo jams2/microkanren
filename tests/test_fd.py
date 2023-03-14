@@ -6,6 +6,7 @@ from microkanren import (
     alldifffd,
     domfd,
     eq,
+    infd,
     ltefd,
     make_domain,
     mkrange,
@@ -153,3 +154,9 @@ class TestFdConstraints:
             & alldifffd(w, x, y, z)
         )
         assert set(result) == set(permutations((1, 2, 3, 4), 4))
+
+    def test_infd(self):
+        result = run_all(
+            lambda a, b, c: infd((a, b, c), mkrange(1, 3)) & alldifffd(a, b, c)
+        )
+        assert set(result) == set(permutations((1, 2, 3), 3))

@@ -451,6 +451,17 @@ def domfd(x: Value, domain: set[int]) -> Goal:
     return goal(_domfd)
 
 
+def infd(values: tuple[Value], domain, /) -> Goal:
+    def _infd(state: State) -> Stream:
+        return reduce(
+            lambda _goal, value: conj(_goal, domfd(value, domain)),
+            values,
+            succeed(),
+        )(state)
+
+    return goal(_infd)
+
+
 def ltefd(u: Value, v: Value) -> Goal:
     def _ltefd(state: State) -> Stream:
         match ltefdc(u, v)(state):
