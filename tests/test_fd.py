@@ -21,13 +21,13 @@ class TestFdConstraints:
     @pytest.mark.parametrize("domain", [make_domain(1, 2, 3), make_domain(5, 7, 9)])
     def test_domfd(self, domain):
         result = run_all(lambda x: domfd(x, domain))
-        assert set(result) == {(x,) for x in domain}
+        assert set(result) == {x for x in domain}
 
     @pytest.mark.parametrize(
         "a,b,intersection",
         [
-            (make_domain(1, 2), make_domain(1, 2), {(1,), (2,)}),
-            (make_domain(1, 2, 3), make_domain(2, 3, 4), {(2,), (3,)}),
+            (make_domain(1, 2), make_domain(1, 2), {1, 2}),
+            (make_domain(1, 2, 3), make_domain(2, 3, 4), {2, 3}),
             (make_domain(1, 2), make_domain(3, 4), make_domain()),
         ],
     )
@@ -60,7 +60,7 @@ class TestFdConstraints:
         If neq(x, n), then n cannot be in the domain of x.
         """
         result = run_all(lambda x: domfd(x, make_domain(1, 2, 3)) & neq((x, 2)))
-        assert set(result) == {(1,), (3,)}
+        assert set(result) == {1, 3}
 
     def test_neq_with_ltefd(self):
         """

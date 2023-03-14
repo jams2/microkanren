@@ -925,6 +925,8 @@ def take(n, s: Stream) -> list[State]:
 
 
 def reify(states: list[State], *top_level_vars: Var):
+    if len(top_level_vars) == 1:
+        return [reify_state(s, top_level_vars[0]) for s in states]
     return [tuple(reify_state(s, var) for var in top_level_vars) for s in states]
 
 
@@ -945,7 +947,9 @@ def walk_all(v: Value, s: Substitution) -> Value:
             return v
         case cons(a, d):
             return cons(walk_all(a, s), walk_all(d, s))
-        case first, *rest:
+        case (first, *rest) as xs:
+            if isinstance(xs, list):
+                return [walk_all(first, s), *walk_all(rest, s)]
             return (walk_all(first, s), *walk_all(rest, s))
         case _:
             return v
@@ -975,7 +979,7 @@ def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
         f_fresh_vars(*fresh_vars),
         *map(enforce_constraints, fresh_vars),
     )
-    return reify(take(n, goal(state)), fresh_vars)
+    return reify(take(n, goal(state)), *fresh_vars)
 
 
 def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
