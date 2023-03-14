@@ -6,7 +6,6 @@ from microkanren import (
     alldifffd,
     domfd,
     eq,
-    fresh,
     ltefd,
     make_domain,
     mkrange,

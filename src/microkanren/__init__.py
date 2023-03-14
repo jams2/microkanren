@@ -1,1 +1,1 @@
-from .microkanren import *
+from .microkanren import *  # NOQA

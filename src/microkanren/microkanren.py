@@ -11,7 +11,7 @@ from functools import reduce, update_wrapper, wraps
 from itertools import filterfalse, tee
 from typing import Any, Callable, Optional, Tuple, TypeAlias, TypeVar, Union
 
-from pyrsistent import pmap
+from pyrsistent import PClass, field, pmap
 from pyrsistent.typing import PMap
 
 _null = object()
@@ -146,33 +146,27 @@ def empty_domain_store() -> DomainStore:
     return pmap()
 
 
-@dataclass(slots=True)
-class State:
-    sub: Substitution
-    domains: DomainStore
-    constraints: ConstraintStore
-    var_count: int
+def empty_constraint_store() -> ConstraintStore:
+    return []
 
-    @classmethod
-    def empty(cls):
-        return cls(empty_sub(), empty_domain_store(), [], 0)
 
-    def update(
-        self, *, sub=None, domains=None, constraints=None, var_count=None
-    ) -> "State":
-        state = {
-            "sub": self.sub if sub is None else sub,
-            "domains": self.domains if domains is None else domains,
-            "constraints": self.constraints if constraints is None else constraints,
-            "var_count": self.var_count if var_count is None else var_count,
-        }
-        return self.__class__(**state)
+class State(PClass):
+    sub = field(mandatory=True)
+    domains = field(mandatory=True)
+    constraints = field(mandatory=True)
+    var_count = field(mandatory=True)
+
+    @staticmethod
+    def empty():
+        return State(
+            sub=empty_sub(),
+            domains=empty_domain_store(),
+            constraints=empty_constraint_store(),
+            var_count=0,
+        )
 
     def get_domain(self, x: Var) -> set[int] | None:
         return self.domains.get(x, None)
-
-    def get_relevant_neqs(self, x: Var):
-        return [c for c in self.neqs if find(x, c) is not None]
 
 
 @dataclass(slots=True)
@@ -369,7 +363,7 @@ def eqc(u: Value, v: Value) -> ConstraintFunction:
             return state
         else:
             prefix = get_sub_prefix(new_sub, state.sub)
-            return process_prefix(prefix, state.constraints)(state.update(sub=new_sub))
+            return process_prefix(prefix, state.constraints)(state.set(sub=new_sub))
 
     return _eqc
 
@@ -427,7 +421,7 @@ def neqc(pairs: tuple[tuple[Value, Value], ...]) -> ConstraintFunction:
             return None
         prefix = get_sub_prefix(new_sub, state.sub)
         remaining_pairs = [x for x in prefix.items()]
-        return state.update(
+        return state.set(
             constraints=extend_constraint_store(
                 Constraint(neqc, [remaining_pairs]), state.constraints
             )
@@ -474,7 +468,7 @@ def ltefdc(u: Value, v: Value) -> ConstraintFunction:
         _v = walk(v, state.sub)
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
-        next_state = state.update(
+        next_state = state.set(
             constraints=extend_constraint_store(
                 Constraint(ltefdc, [_u, _v]), state.constraints
             )
@@ -510,7 +504,7 @@ def plusfdc(u: Value, v: Value, w: Value) -> ConstraintFunction:
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
         dom_w = state.get_domain(_w) if isinstance(_w, Var) else make_domain(_w)
-        next_state = state.update(
+        next_state = state.set(
             constraints=extend_constraint_store(
                 Constraint(plusfdc, [_u, _v, _w]), state.constraints
             )
@@ -552,7 +546,7 @@ def neqfdc(u: Value, v: Value) -> ConstraintFunction:
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
         if dom_u is None or dom_v is None:
-            return state.update(
+            return state.set(
                 constraints=extend_constraint_store(
                     Constraint(neqfdc, [_u, _v]), state.constraints
                 )
@@ -562,7 +556,7 @@ def neqfdc(u: Value, v: Value) -> ConstraintFunction:
         elif dom_u.isdisjoint(dom_v):
             return state
 
-        next_state = state.update(
+        next_state = state.set(
             constraints=extend_constraint_store(
                 Constraint(neqfdc, [_u, _v]), state.constraints
             )
@@ -615,7 +609,7 @@ def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> ConstraintF
             else:
                 values.add(v)
 
-        next_state = state.update(
+        next_state = state.set(
             constraints=extend_constraint_store(
                 Constraint(alldifffdc_resolve, [remains_unresolved, values]),
                 state.constraints,
@@ -679,9 +673,9 @@ def update_var_domain(x: Var, domain: set[int], state: State) -> State | None:
 def resolve_storable_domain(domain: set[int], x: Var, state: State) -> State | None:
     if len(domain) == 1:
         n = domain.copy().pop()
-        next_state = state.update(sub=extend_substitution(x, n, state.sub))
+        next_state = state.set(sub=extend_substitution(x, n, state.sub))
         return run_constraints([x], state.constraints)(next_state)
-    return state.update(domains=extend_domain_store(x, domain, state.domains))
+    return state.set(domains=extend_domain_store(x, domain, state.domains))
 
 
 def identity_constraint(state):
@@ -716,7 +710,7 @@ def remove_and_run(constraint: Constraint) -> ConstraintFunction:
     def _remove_and_run(state: State) -> State | None:
         if constraint in state.constraints:
             constraints = [x for x in state.constraints if x != constraint]
-            return constraint(state.update(constraints=constraints))
+            return constraint(state.set(constraints=constraints))
         else:
             return state
 
@@ -890,7 +884,7 @@ def fresh(fp: Callable) -> Goal:
     def _fresh(state: State) -> Stream:
         i = state.var_count
         vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.update(var_count=i + n))
+        return fp(*vs)(state.set(var_count=i + n))
 
     return goal(_fresh)
 
@@ -965,7 +959,7 @@ def call_with_empty_state(g: Goal) -> Stream:
 def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
     n_vars = f_fresh_vars.__code__.co_argcount
     fresh_vars = tuple(Var(i) for i in range(n_vars))
-    state = State.empty().update(var_count=n_vars)
+    state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
         *map(enforce_constraints, fresh_vars),
@@ -976,7 +970,7 @@ def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
 def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
     n_vars = f_fresh_vars.__code__.co_argcount
     fresh_vars = tuple(Var(i) for i in range(n_vars))
-    state = State.empty().update(var_count=n_vars)
+    state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
         *map(enforce_constraints, fresh_vars),
