@@ -2,8 +2,12 @@
 TODO: maybe add a const_string or symbol type to avoid overhead for strings that won't
 be combined/mutated
 
-TODO: FD constraints could probably be stored as an upper and lower bound instead of a
-set of the entire range
+TODO: can we improve memory efficiency of domains by storing min/max of intervals only?
+
+TODO: maybe store constraints as an inverse mapping of operands to constraints for more
+efficient access
+
+TODO: look at trampolining
 """
 
 from collections.abc import Callable
@@ -15,7 +19,7 @@ from typing import Any, Optional, TypeAlias, TypeVar
 from pyrsistent import PClass, field, pmap
 from pyrsistent.typing import PMap
 
-_null = object()
+NOT_FOUND = object()
 
 
 def partition(pred, iterable):
@@ -58,7 +62,7 @@ class cons:
         yield self.tail
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.head}, {self.tail})"
+        return f"{self.__class__.__name__}({self.head!r}, {self.tail!r})"
 
     @classmethod
     def from_python(cls, ls):
@@ -128,7 +132,6 @@ class ReifiedVar:
 
     def __repr__(self):
         return f"_.{self.i}"
-
 
 
 Cons: TypeAlias = cons | nil
@@ -234,8 +237,8 @@ def bind(stream: Stream, g: Goal) -> Stream:
 
 def walk(u: Value, s: Substitution) -> Value:
     if isinstance(u, Var):
-        bound = s.get(u, _null)
-        if bound is _null:
+        bound = s.get(u, NOT_FOUND)
+        if bound is NOT_FOUND:
             return u
         return walk(bound, s)
     return u
@@ -284,7 +287,7 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
         case cons(x, xs), cons(y, ys):
             s1 = unify(x, y, s)
             return unify(xs, ys, s1) if s1 is not None else None
-        case tuple(xs), tuple(ys) if len(xs) == len(ys):
+        case (x, *rest_x) as xs, (y, *rest_y) as ys if len(xs) == len(ys):
             for x, y in zip(xs, ys):
                 s = unify(x, y, s)
                 if s is None:
@@ -483,11 +486,9 @@ def domfd(x: Value, domain: set[int]) -> Goal:
 
 def infd(values: tuple[Value], domain, /) -> Goal:
     def _infd(state: State) -> Stream:
-        return reduce(
-            lambda _goal, value: conj(_goal, domfd(value, domain)),
-            values,
-            succeed(),
-        )(state)
+        return conj(domfd(values[0], domain), *(domfd(v, domain) for v in values[1:]))(
+            state
+        )
 
     return goal(_infd)
 
@@ -732,8 +733,6 @@ def compose_constraints(f, g):
 
 
 def run_constraints(xs: list, constraints: ConstraintStore) -> ConstraintFunction:
-    # TODO: maybe store constraints as an inverse mapping of operands to constraints for more
-    # efficient access
     match constraints:
         case []:
             return identity_constraint
@@ -930,6 +929,15 @@ def fresh(fp: Callable) -> Goal:
     return goal(_fresh)
 
 
+def freshn(n: int, fp: Callable) -> Goal:
+    def _fresh(state: State) -> Stream:
+        i = state.var_count
+        vs = (Var(j) for j in range(i, i + n))
+        return fp(*vs)(state.set(var_count=i + n))
+
+    return goal(_fresh)
+
+
 def pull(s: Stream):
     while callable(s):
         s = s()
@@ -991,7 +999,7 @@ def reify_sub(v: Value, s: Substitution) -> Substitution:
     match v:
         case _ if isinstance(v, Var):
             return extend_substitution(v, ReifiedVar(len(s)), s)
-        case (a, d):
+        case (a, *d):
             return reify_sub(d, reify_sub(a, s))
         case _:
             return s

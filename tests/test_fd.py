@@ -4,8 +4,10 @@ import pytest
 
 from microkanren import (
     alldifffd,
+    conj,
     domfd,
     eq,
+    freshn,
     infd,
     ltefd,
     make_domain,
@@ -13,6 +15,7 @@ from microkanren import (
     neq,
     neqfd,
     plusfd,
+    run,
     run_all,
 )
 
@@ -160,3 +163,28 @@ class TestFdConstraints:
             lambda a, b, c: infd((a, b, c), mkrange(1, 3)) & alldifffd(a, b, c)
         )
         assert set(result) == set(permutations((1, 2, 3), 3))
+
+
+class TestLargeGoals:
+    @pytest.mark.skip()
+    def test_sudoku(self):
+        def grido(grid, *vs):
+            assert len(vs) == 81
+            return eq(
+                grid,
+                [tuple(vs[j] for j in range(i, i + 9)) for i in range(0, 81, 9)],
+            )
+
+        def sudokuo(a, b):
+            return freshn(
+                162,
+                lambda *vs: conj(
+                    grido(a, *vs[:81]),
+                    grido(b, *vs[81:]),
+                    infd(vs, mkrange(1, 9)),
+                    eq(a, b),
+                ),
+            )
+
+        run(1, lambda a, b: sudokuo(a, b))
+        breakpoint()
