@@ -6,7 +6,10 @@ from microkanren import (
     eq,
     extend_substitution,
     get_sub_prefix,
+    goal,
+    run,
     run_all,
+    snooze,
     walk,
 )
 
@@ -48,3 +51,20 @@ class TestEq:
     def test_simple_eq(self):
         result = run_all(lambda x: eq(x, 1))
         assert result == [1]
+
+
+class TestSnooze:
+    def test_fives(self):
+        @goal
+        def fives(x):
+            return eq(x, 5) | snooze(fives, x)
+
+        result = run(3, lambda x: fives(x))
+        assert result == [5, 5, 5]
+
+        @goal
+        def sixes(x):
+            return eq(x, 6) | snooze(sixes, x)
+
+        result = run(8, lambda x: fives(x) | sixes(x))
+        assert result == [5, 6, 5, 6, 5, 6, 5, 6]

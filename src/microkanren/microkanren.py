@@ -6,10 +6,11 @@ TODO: FD constraints could probably be stored as an upper and lower bound instea
 set of the entire range
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
 from itertools import filterfalse, tee
-from typing import Any, Callable, Optional, Tuple, TypeAlias, TypeVar, Union
+from typing import Any, Optional, TypeAlias, TypeVar
 
 from pyrsistent import PClass, field, pmap
 from pyrsistent.typing import PMap
@@ -129,8 +130,9 @@ class ReifiedVar:
         return f"_.{self.i}"
 
 
-Cons: TypeAlias = Union[cons, nil]
-Value: TypeAlias = Union[Var, int, str, bool, Tuple["Value", ...], Cons]
+
+Cons: TypeAlias = cons | nil
+Value: TypeAlias = Var | int | str | bool | tuple["Value", ...] | Cons
 Substitution: TypeAlias = PMap[Var, Value]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
 DomainStore: TypeAlias = PMap[Var, set[int]]
@@ -186,7 +188,7 @@ def mkrange(start: int, end: int) -> set[int]:
     return make_domain(*range(start, end + 1))
 
 
-Stream: TypeAlias = Tuple[()] | Callable[[], "Stream"] | Tuple[State, "Stream"]
+Stream: TypeAlias = tuple[()] | Callable[[], "Stream"] | tuple[State, "Stream"]
 Goal: TypeAlias = Callable[[State], Stream]
 
 
@@ -294,21 +296,6 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
             return None
 
 
-class goal:
-    def __init__(self, goal_func: Goal):
-        update_wrapper(self, goal_func)
-        self.f = goal_func
-
-    def __call__(self, state):
-        return self.f(state)
-
-    def __or__(self, other):
-        return _disj(self.f, other.f)
-
-    def __and__(self, other):
-        return _conj(self.f, other.f)
-
-
 def succeed() -> Goal:
     def _succeed(state):
         return eq(True, True)(state)
@@ -321,6 +308,35 @@ def fail() -> Goal:
         return eq(False, True)(state)
 
     return goal(_fail)
+
+
+class goal:
+    def __init__(self, goal_func: Goal):
+        update_wrapper(self, goal_func)
+        self.f = goal_func
+
+    def __call__(self, state):
+        return self.f(state)
+
+    def __or__(self, other):
+        # Use disj and conj instead of _disj and _conj, as the former delay their goals
+        return disj(self, other)
+
+    def __and__(self, other):
+        return conj(self, other)
+
+
+class DelayedGoal(goal):
+    def __init__(self, goal_func: Goal, *args: Value):
+        self.f = goal_func
+        self.args = args
+
+    def __call__(self, state):
+        return self.f(*self.args)(state)
+
+
+def snooze(g: Goal, *args: Value) -> DelayedGoal:
+    return DelayedGoal(g, *args)
 
 
 def delay(g: Goal) -> Goal:
@@ -398,7 +414,7 @@ def unify_all(
 
 
 def maybe_unify(
-    pair: Tuple[Value, Value], sub: Substitution | None
+    pair: tuple[Value, Value], sub: Substitution | None
 ) -> Substitution | None:
     if sub is None:
         return None
@@ -848,7 +864,7 @@ def get_sub_prefix(new_sub: Substitution, old_sub: Substitution) -> Substitution
 def conda(*cases) -> Goal:
     _cases = []
     for case in cases:
-        if isinstance(case, (list, tuple)):
+        if isinstance(case, list | tuple):
             _cases.append((case[0], succeed) if len(case) < 2 else case)
         else:
             _cases.append((case, succeed()))
@@ -915,8 +931,8 @@ def fresh(fp: Callable) -> Goal:
 
 
 def pull(s: Stream):
-    if callable(s):
-        return pull(s())
+    while callable(s):
+        s = s()
     return s
 
 

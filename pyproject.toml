@@ -24,7 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "black ~= 23.1.0",
-    "isort ~= 5.12.0",
+    "ruff ~= 0.0.256",
 ]
 testing = ["pytest ~= 7.2.2"]
 
@@ -36,7 +36,18 @@ build-backend = "hatchling.build"
 pythonpath = ["src"]
 minversion = 7.0
 
-[tool.isort]
-profile = "black"
-py_version = 310
-known_first_party = ["microkanren"]
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+select = [
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "UP",  # pyupgrade
+  "I",   # isort
+  "ARG", # unused arguments
+  "PT",  # pytest style
+]
+
+[tool.pyright]
+pythonVersion = "3.10"
+stubPath = ""

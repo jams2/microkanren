@@ -24,7 +24,7 @@ class TestFdConstraints:
         assert set(result) == {x for x in domain}
 
     @pytest.mark.parametrize(
-        "a,b,intersection",
+        ("a", "b", "intersection"),
         [
             (make_domain(1, 2), make_domain(1, 2), {1, 2}),
             (make_domain(1, 2, 3), make_domain(2, 3, 4), {2, 3}),
@@ -40,7 +40,7 @@ class TestFdConstraints:
         assert result == []
 
     @pytest.mark.parametrize(
-        "a,b,expected_x",
+        ("a", "b", "expected_x"),
         [
             (make_domain(1, 2, 3, 4), make_domain(2, 3), make_domain(1, 2, 3)),
             (make_domain(4, 5), make_domain(1, 2), make_domain()),
@@ -94,7 +94,7 @@ class TestFdConstraints:
         assert set(result) == {(1, 1, 2), (1, 2, 3), (2, 2, 4)}
 
     @pytest.mark.parametrize(
-        "a,b,expected",
+        ("a", "b", "expected"),
         [
             (make_domain(1), make_domain(1), set()),
             (make_domain(1, 2, 3), make_domain(1), {2, 3}),
@@ -119,7 +119,7 @@ class TestFdConstraints:
         assert set(result) == {(2, 3)}
 
     @pytest.mark.parametrize(
-        "a,b,expected",
+        ("a", "b", "expected"),
         [
             (1, 1, []),
             (2, 3, [(2, 3)]),
@@ -130,7 +130,7 @@ class TestFdConstraints:
         assert result == expected
 
     @pytest.mark.parametrize(
-        "a,b,expected",
+        ("a", "b", "expected"),
         [
             (make_domain(1, 2), make_domain(1, 2), {(1, 2), (2, 1)}),
             (make_domain(2), make_domain(1, 2, 3), {(2, 1), (2, 3)}),
