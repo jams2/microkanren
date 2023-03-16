@@ -189,6 +189,20 @@ def mkrange(start: int, end: int) -> set[int]:
 Stream: TypeAlias = Tuple[()] | Callable[[], "Stream"] | Tuple[State, "Stream"]
 Goal: TypeAlias = Callable[[State], Stream]
 
+
+@dataclass(slots=True)
+class Thunk:
+    func: Callable
+    args: list
+
+    def __init__(self, func, *args):
+        self.func = func
+        self.args = args
+
+    def __call__(self):
+        return self.func(*self.args)
+
+
 mzero = ()
 
 
@@ -200,8 +214,8 @@ def mplus(s1: Stream, s2: Stream) -> Stream:
     match s1:
         case ():
             return s2
-        case f if callable(s1):
-            return lambda: mplus(f(), s2)
+        case Thunk(_, _) as f:
+            return Thunk(mplus, s2, f())
         case (t, u):
             return (t, mplus(s2, u))
 
@@ -210,8 +224,8 @@ def bind(stream: Stream, g: Goal) -> Stream:
     match stream:
         case ():
             return mzero
-        case f if callable(f):
-            return lambda: bind(f(), g)
+        case Thunk(_, _) as f:
+            return Thunk(bind, f(), g)
         case (s1, s2):
             return mplus(g(s1), bind(s2, g))
 
@@ -310,7 +324,7 @@ def fail() -> Goal:
 
 
 def delay(g: Goal) -> Goal:
-    return goal(lambda state: lambda: g(state))
+    return goal(lambda state: Thunk(g, state))
 
 
 def disj(g: Goal, *goals: Goal) -> Goal:
