@@ -186,5 +186,5 @@ class TestLargeGoals:
                 ),
             )
 
-        run(1, lambda a, b: sudokuo(a, b))
+        result = run(1, lambda a, b: sudokuo(a, b))
         breakpoint()

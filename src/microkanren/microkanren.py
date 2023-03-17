@@ -9,22 +9,37 @@ efficient access
 
 TODO: look at trampolining
 """
-
+from types import GeneratorType
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
-from itertools import filterfalse, tee
+from itertools import filterfalse, tee, cycle, islice
 from typing import Any, Optional, TypeAlias, TypeVar
 
 from pyrsistent import PClass, field, pmap
 from pyrsistent.typing import PMap
 
-NOT_FOUND = object()
+FAIL = object()
 
 
 def partition(pred, iterable):
     t1, t2 = tee(iterable)
     return filter(pred, t1), filterfalse(pred, t2)
+
+
+def roundrobin(*iterables):
+    "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
+    # Recipe credited to George Sakkis
+    num_active = len(iterables)
+    nexts = cycle(iter(it).__next__ for it in iterables)
+    while num_active:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            # Remove the iterator we just exhausted from the cycle.
+            num_active -= 1
+            nexts = cycle(islice(nexts, num_active))
 
 
 @dataclass(slots=True)
@@ -191,7 +206,7 @@ def mkrange(start: int, end: int) -> set[int]:
     return make_domain(*range(start, end + 1))
 
 
-Stream: TypeAlias = tuple[()] | Callable[[], "Stream"] | tuple[State, "Stream"]
+Stream: TypeAlias = tuple[()] | tuple[State, "Stream"]
 Goal: TypeAlias = Callable[[State], Stream]
 
 
@@ -208,11 +223,12 @@ class Thunk:
         return self.func(*self.args)
 
 
-mzero = ()
+def mzero():
+    yield from ()
 
 
 def unit(state: State) -> Stream:
-    return (state, mzero)
+    yield state
 
 
 def mplus(s1: Stream, s2: Stream) -> Stream:
@@ -228,17 +244,32 @@ def mplus(s1: Stream, s2: Stream) -> Stream:
 def bind(stream: Stream, g: Goal) -> Stream:
     match stream:
         case ():
-            return mzero
+            return mzero()
         case Thunk(_, _) as f:
+            # (Thunk bind (f) g)
+            # (lambda x: Thunk(bind, x, g))(f())
             return Thunk(bind, f(), g)
         case (s1, s2):
+            # (mplus (g s1) (bind s2 g))
+            # (lambda x: lambda y: mplus(x, y))(g(s1))(bind(s2, g))
             return mplus(g(s1), bind(s2, g))
+
+
+def iter_mplus(s1: Stream, s2: Stream) -> Stream:
+    yield from roundrobin(s1, s2)
+
+
+def iter_bind(stream: Stream, g: Goal) -> Stream:
+    result = mzero()
+    for state in stream:
+        result = iter_mplus(result, g(state))
+    yield from result
 
 
 def walk(u: Value, s: Substitution) -> Value:
     if isinstance(u, Var):
-        bound = s.get(u, NOT_FOUND)
-        if bound is NOT_FOUND:
+        bound = s.get(u, FAIL)
+        if bound is FAIL:
             return u
         return walk(bound, s)
     return u
@@ -335,7 +366,7 @@ class DelayedGoal(goal):
         self.args = args
 
     def __call__(self, state):
-        return self.f(*self.args)(state)
+        yield self.f(*self.args)(state)
 
 
 def snooze(g: Goal, *args: Value) -> DelayedGoal:
@@ -343,6 +374,7 @@ def snooze(g: Goal, *args: Value) -> DelayedGoal:
 
 
 def delay(g: Goal) -> Goal:
+    return g
     return goal(lambda state: Thunk(g, state))
 
 
@@ -355,7 +387,7 @@ def disj(g: Goal, *goals: Goal) -> Goal:
 
 def _disj(g1: Goal, g2: Goal) -> Goal:
     def __disj(state: State) -> Stream:
-        return mplus(g1(state), g2(state))
+        return iter_mplus(g1(state), g2(state))
 
     return goal(__disj)
 
@@ -369,7 +401,7 @@ def conj(g: Goal, *goals: Goal) -> Goal:
 
 def _conj(g1: Goal, g2: Goal) -> Goal:
     def __conj(state: State) -> Stream:
-        return bind(g1(state), g2)
+        return iter_bind(g1(state), g2)
 
     return goal(__conj)
 
@@ -378,7 +410,7 @@ def eq(u: Value, v: Value) -> Goal:
     def _eq(state: State) -> Stream:
         match eqc(u, v)(state):
             case None:
-                return mzero
+                return mzero()
             case s:
                 return unit(s)
 
@@ -437,7 +469,7 @@ def neq(*pairs) -> Goal:
     def _neq(state: State) -> Stream:
         match neqc(pairs)(state):
             case None:
-                return mzero
+                return mzero()
             case s:
                 return unit(s)
 
@@ -477,7 +509,7 @@ def domfd(x: Value, domain: set[int]) -> Goal:
     def _domfd(state: State) -> Stream:
         match process_domain(x, domain)(state):
             case None:
-                return mzero
+                return mzero()
             case _ as s1:
                 return unit(s1)
 
@@ -497,7 +529,7 @@ def ltefd(u: Value, v: Value) -> Goal:
     def _ltefd(state: State) -> Stream:
         match ltefdc(u, v)(state):
             case None:
-                return mzero
+                return mzero()
             case _ as s1:
                 return unit(s1)
 
@@ -531,7 +563,7 @@ def plusfd(u: Value, v: Value, w: Value):
     def _plusfd(state: State) -> Stream:
         match plusfdc(u, v, w)(state):
             case None:
-                return mzero
+                return mzero()
             case _ as s1:
                 return unit(s1)
 
@@ -574,7 +606,7 @@ def neqfd(u: Value, v: Value) -> Goal:
     def _neqfd(state: State) -> Stream:
         match neqfdc(u, v)(state):
             case None:
-                return mzero
+                return mzero()
             case _ as s1:
                 return unit(s1)
 
@@ -617,7 +649,7 @@ def alldifffd(*vs: Value) -> Goal:
     def _alldifffd(state: State) -> Stream:
         match alldifffdc(*vs)(state):
             case None:
-                return mzero
+                return mzero()
             case _ as s1:
                 return unit(s1)
 
@@ -893,7 +925,7 @@ def ifte(g1, g2, g3=fail()) -> Goal:
                 case ():
                     return g3(state)
                 case (_, _):
-                    return bind(stream, g2)
+                    return iter_bind(stream, g2)
                 case _:
                     return lambda: ifte_loop(stream())
 
@@ -904,16 +936,11 @@ def ifte(g1, g2, g3=fail()) -> Goal:
 
 def onceo(g: Goal) -> Goal:
     def _onceo(state: State) -> Stream:
-        def onceo_loop(stream: Stream) -> Stream:
-            match stream:
-                case ():
-                    return mzero
-                case (s1, _):
-                    return unit(s1)
-                case _:
-                    return onceo_loop(stream())
-
-        return onceo_loop(g(state))
+        stream = g(state)
+        result = next(stream, FAIL)
+        if result is FAIL:
+            return mzero()
+        return unit(result)
 
     return _onceo
 
@@ -945,21 +972,25 @@ def pull(s: Stream):
 
 
 def take_all(s: Stream) -> list[State]:
-    s1 = pull(s)
-    if s1 == ():
-        return []
-    first, rest = s1
-    return [first, *take_all(rest)]
+    return [x for x in s]
 
 
 def take(n, s: Stream) -> list[State]:
-    if n == 0:
-        return []
-    s1 = pull(s)
-    if s1 == ():
-        return []
-    first, rest = s1
-    return [first, *take(n - 1, rest)]
+    i = 0
+    results = []
+    streams = [s]
+    state = next(streams[-1], FAIL)
+    while i < n and streams:
+        if state is FAIL:
+            streams.pop()
+        elif isinstance(state, GeneratorType):
+            streams.append(state)
+            state = next(streams[-1], FAIL)
+        else:
+            results.append(state)
+            i += 1
+            state = next(streams[-1], FAIL)
+    return results
 
 
 def reify(states: list[State], *top_level_vars: Var):
