@@ -22,6 +22,10 @@ from pyrsistent.typing import PMap
 NOT_FOUND = object()
 
 
+def identity(x):
+    return x
+
+
 def partition(pred, iterable):
     t1, t2 = tee(iterable)
     return filter(pred, t1), filterfalse(pred, t2)
@@ -195,6 +199,17 @@ Stream: TypeAlias = tuple[()] | Callable[[], "Stream"] | tuple[State, "Stream"]
 Goal: TypeAlias = Callable[[State], Stream]
 
 
+def goal_from_constraint(constraint: ConstraintFunction) -> Goal:
+    def _goal(state: State, continuation):
+        match constraint(state):
+            case None:
+                return Thunk(continuation, mzero)
+            case _ as next_state:
+                return Thunk(continuation, unit(next_state))
+
+    return goal(_goal)
+
+
 @dataclass(slots=True)
 class Thunk:
     func: Callable
@@ -208,6 +223,24 @@ class Thunk:
         return self.func(*self.args)
 
 
+class ImmatureStream(Thunk):
+    ...
+
+
+def trampoline_goal(goal, state=None, continuation=None):
+    if state is None and continuation is None:
+        result = goal()
+    else:
+        result = goal(state, continuation)
+    while type(result) is Thunk:
+        result = result()
+    return result
+
+
+class InvalidStream(Exception):
+    pass
+
+
 mzero = ()
 
 
@@ -215,24 +248,47 @@ def unit(state: State) -> Stream:
     return (state, mzero)
 
 
-def mplus(s1: Stream, s2: Stream) -> Stream:
+def mplus(s1: Stream, s2: Stream, continuation):
     match s1:
         case ():
-            return s2
-        case Thunk(_, _) as f:
-            return Thunk(mplus, s2, f())
-        case (t, u):
-            return (t, mplus(s2, u))
+            return Thunk(continuation, s2)
+        case ImmatureStream(_, _) as f:
+            return Thunk(
+                f,
+                lambda value: Thunk(ImmatureStream, mplus, s2, value, continuation),
+            )
+        case (head, tail):
+            return Thunk(
+                mplus,
+                s2,
+                tail,
+                lambda mplus_result: Thunk(continuation, (head, mplus_result)),
+            )
+        case _:
+            raise InvalidStream
 
 
-def bind(stream: Stream, g: Goal) -> Stream:
+def bind(stream: Stream, g: Goal, continuation):
     match stream:
         case ():
-            return mzero
-        case Thunk(_, _) as f:
-            return Thunk(bind, f(), g)
+            return Thunk(continuation, mzero)
+        case ImmatureStream(_, _) as f:
+            return Thunk(
+                f, lambda value: Thunk(ImmatureStream, bind, value, g, continuation)
+            )
         case (s1, s2):
-            return mplus(g(s1), bind(s2, g))
+            return Thunk(
+                bind,
+                s2,
+                g,
+                lambda bind_result: Thunk(
+                    g,
+                    s1,
+                    lambda g_result: Thunk(mplus, g_result, bind_result, continuation),
+                ),
+            )
+        case _:
+            raise InvalidStream
 
 
 def walk(u: Value, s: Substitution) -> Value:
@@ -300,15 +356,15 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
 
 
 def succeed() -> Goal:
-    def _succeed(state):
-        return eq(True, True)(state)
+    def _succeed(state, continuation):
+        return eq(True, True)(state, continuation)
 
     return goal(_succeed)
 
 
 def fail() -> Goal:
-    def _fail(state):
-        return eq(False, True)(state)
+    def _fail(state, continuation):
+        return eq(False, True)(state, continuation)
 
     return goal(_fail)
 
@@ -318,8 +374,8 @@ class goal:
         update_wrapper(self, goal_func)
         self.f = goal_func
 
-    def __call__(self, state):
-        return self.f(state)
+    def __call__(self, state, continuation):
+        return Thunk(self.f, state, continuation)
 
     def __or__(self, other):
         # Use disj and conj instead of _disj and _conj, as the former delay their goals
@@ -334,8 +390,10 @@ class DelayedGoal(goal):
         self.f = goal_func
         self.args = args
 
-    def __call__(self, state):
-        return self.f(*self.args)(state)
+    def __call__(self, state, continuation):
+        return Thunk(
+            self.f, *self.args, lambda goal_func: Thunk(goal_func, state, continuation)
+        )
 
 
 def snooze(g: Goal, *args: Value) -> DelayedGoal:
@@ -343,7 +401,9 @@ def snooze(g: Goal, *args: Value) -> DelayedGoal:
 
 
 def delay(g: Goal) -> Goal:
-    return goal(lambda state: Thunk(g, state))
+    return goal(
+        lambda state, continuation: Thunk(ImmatureStream, g, state, continuation)
+    )
 
 
 def disj(g: Goal, *goals: Goal) -> Goal:
@@ -354,8 +414,16 @@ def disj(g: Goal, *goals: Goal) -> Goal:
 
 
 def _disj(g1: Goal, g2: Goal) -> Goal:
-    def __disj(state: State) -> Stream:
-        return mplus(g1(state), g2(state))
+    def __disj(state: State, continuation) -> Stream:
+        return Thunk(
+            g2,
+            state,
+            lambda g2_res: Thunk(
+                g1,
+                state,
+                lambda g1_res: Thunk(mplus, g1_res, g2_res, continuation),
+            ),
+        )
 
     return goal(__disj)
 
@@ -368,24 +436,15 @@ def conj(g: Goal, *goals: Goal) -> Goal:
 
 
 def _conj(g1: Goal, g2: Goal) -> Goal:
-    def __conj(state: State) -> Stream:
-        return bind(g1(state), g2)
+    def __conj(state: State, continuation) -> Stream:
+        return Thunk(
+            g1, state, lambda g1_result: Thunk(bind, g1_result, g2, continuation)
+        )
 
     return goal(__conj)
 
 
 def eq(u: Value, v: Value) -> Goal:
-    def _eq(state: State) -> Stream:
-        match eqc(u, v)(state):
-            case None:
-                return mzero
-            case s:
-                return unit(s)
-
-    return goal(_eq)
-
-
-def eqc(u: Value, v: Value) -> ConstraintFunction:
     def _eqc(state: State) -> State | None:
         new_sub = unify(u, v, state.sub)
         if new_sub is None:
@@ -393,12 +452,12 @@ def eqc(u: Value, v: Value) -> ConstraintFunction:
             return None
         elif new_sub == state.sub:
             # Unification succeeded without new associations
-            return state
+            return unit(state)
         else:
             prefix = get_sub_prefix(new_sub, state.sub)
             return process_prefix(prefix, state.constraints)(state.set(sub=new_sub))
 
-    return _eqc
+    return goal_from_constraint(_eqc)
 
 
 def unify_all(
@@ -434,14 +493,7 @@ def flip(f):
 
 
 def neq(*pairs) -> Goal:
-    def _neq(state: State) -> Stream:
-        match neqc(pairs)(state):
-            case None:
-                return mzero
-            case s:
-                return unit(s)
-
-    return goal(_neq)
+    return goal_from_constraint(neqc(pairs))
 
 
 def neqc(pairs: tuple[tuple[Value, Value], ...]) -> ConstraintFunction:
@@ -474,34 +526,24 @@ def any_relevant_vars(operands, values):
 
 
 def domfd(x: Value, domain: set[int]) -> Goal:
-    def _domfd(state: State) -> Stream:
-        match process_domain(x, domain)(state):
-            case None:
-                return mzero
-            case _ as s1:
-                return unit(s1)
+    def _domfd(state: State):
+        process_domain_goal = process_domain(x, domain)
+        return process_domain_goal(state)
 
-    return goal(_domfd)
+    return goal_from_constraint(_domfd)
 
 
 def infd(values: tuple[Value], domain, /) -> Goal:
-    def _infd(state: State) -> Stream:
-        return conj(domfd(values[0], domain), *(domfd(v, domain) for v in values[1:]))(
-            state
-        )
-
-    return goal(_infd)
+    infdc = reduce(
+        lambda c, v: compose_constraints(c, domfd(v, domain)),
+        values,
+        identity_constraint,
+    )
+    return goal_from_constraint(infdc)
 
 
 def ltefd(u: Value, v: Value) -> Goal:
-    def _ltefd(state: State) -> Stream:
-        match ltefdc(u, v)(state):
-            case None:
-                return mzero
-            case _ as s1:
-                return unit(s1)
-
-    return goal(_ltefd)
+    return goal_from_constraint(ltefdc(u, v))
 
 
 def ltefdc(u: Value, v: Value) -> ConstraintFunction:
@@ -528,14 +570,7 @@ def ltefdc(u: Value, v: Value) -> ConstraintFunction:
 
 
 def plusfd(u: Value, v: Value, w: Value):
-    def _plusfd(state: State) -> Stream:
-        match plusfdc(u, v, w)(state):
-            case None:
-                return mzero
-            case _ as s1:
-                return unit(s1)
-
-    return goal(_plusfd)
+    return goal_from_constraint(plusfdc(u, v, w))
 
 
 def plusfdc(u: Value, v: Value, w: Value) -> ConstraintFunction:
@@ -571,14 +606,7 @@ def plusfdc(u: Value, v: Value, w: Value) -> ConstraintFunction:
 
 
 def neqfd(u: Value, v: Value) -> Goal:
-    def _neqfd(state: State) -> Stream:
-        match neqfdc(u, v)(state):
-            case None:
-                return mzero
-            case _ as s1:
-                return unit(s1)
-
-    return goal(_neqfd)
+    return goal_from_constraint(neqfdc(u, v))
 
 
 def neqfdc(u: Value, v: Value) -> ConstraintFunction:
@@ -614,14 +642,7 @@ def neqfdc(u: Value, v: Value) -> ConstraintFunction:
 
 
 def alldifffd(*vs: Value) -> Goal:
-    def _alldifffd(state: State) -> Stream:
-        match alldifffdc(*vs)(state):
-            case None:
-                return mzero
-            case _ as s1:
-                return unit(s1)
-
-    return goal(_alldifffd)
+    return goal_from_constraint(alldifffdc(*vs))
 
 
 def alldifffdc(*vs: Value) -> ConstraintFunction:
@@ -685,7 +706,7 @@ def is_domain_member(v: Value, dom: set[int]) -> bool:
     return isinstance(v, int) and v in dom
 
 
-def process_domain(x: Value, domain: set[int]):
+def process_domain(x: Value, domain: set[int]) -> ConstraintFunction:
     def _process_domain(state):
         match walk(x, state.sub):
             case Var(_):
@@ -724,12 +745,16 @@ def identity_constraint(state):
     return state
 
 
-def compose_constraints(f, g):
-    def _compose_constraints(state):
+def bind_constraints(f, g) -> ConstraintFunction:
+    def _bind_constraints(state: State) -> State | None:
         maybe_state = f(state)
-        return g(maybe_state) if maybe_state else None
+        return g(maybe_state) if maybe_state is not None else None
 
-    return _compose_constraints
+    return _bind_constraints
+
+
+def compose_constraints(f, g) -> ConstraintFunction:
+    return bind_constraints(f, g)
 
 
 def run_constraints(xs: list, constraints: ConstraintStore) -> ConstraintFunction:
@@ -765,8 +790,8 @@ def process_prefix_neq(
     return run_constraints(prefix_vars, constraints)
 
 
-def enforce_constraints_neq(_) -> ConstraintFunction:
-    return lambda state: state
+def enforce_constraints_neq(_) -> Stream:
+    return lambda state, continuation: lambda: continuation(unit(state))
 
 
 def reify_constraints_neq(x: Var, r: Substitution) -> Goal:
@@ -787,7 +812,7 @@ def process_prefix_fd(
         process_prefix_fd(prefix.remove(x), constraints),
     )
 
-    def _process_prefix_fd(state: State) -> State | None:
+    def _process_prefix_fd(state: State):
         domain_x = state.get_domain(x)
         if domain_x is not None:
             # We have a new association for x (as x is in prefix), and we found an existing
@@ -799,10 +824,10 @@ def process_prefix_fd(
 
 
 def enforce_constraints_fd(x: Var) -> Goal:
-    def _enforce_constraints(state: State) -> Stream:
+    def _enforce_constraints(state: State, continuation):
         bound_vars = state.domains.keys()
         verify_all_bound(state.constraints, bound_vars)
-        return onceo(force_answer(bound_vars))(state)
+        return onceo(force_answer(bound_vars))(state, continuation)
 
     return conj(force_answer(x), _enforce_constraints)
 
@@ -837,14 +862,22 @@ def verify_all_bound(constraints: ConstraintStore, bound_vars: list[Var]):
 
 
 def force_answer(x: Var | list[Var]) -> Goal:
-    def _force_answer(state: State) -> Stream:
+    def _force_answer(state: State, continuation):
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
-                return map_sum(lambda val: eq(x, val), d)(state)
+                return lambda: map_sum(lambda val: eq(x, val), d)(state, continuation)
             case (first, *rest):
-                return conj(force_answer(first), force_answer(rest))(state)
+                return lambda: force_answer(rest)(
+                    state,
+                    lambda value: lambda: force_answer(first)(
+                        state,
+                        lambda value_2: lambda: conj(value, value_2)(
+                            state, continuation
+                        ),
+                    ),
+                )
             case _:
-                return succeed()(state)
+                return lambda: succeed()(state, continuation)
 
     return _force_answer
 
@@ -903,17 +936,15 @@ def ifte(g1, g2, g3=fail()) -> Goal:
 
 
 def onceo(g: Goal) -> Goal:
-    def _onceo(state: State) -> Stream:
-        def onceo_loop(stream: Stream) -> Stream:
+    def _onceo(state: State, continuation):
+        stream = g(state, continuation)
+        while stream:
             match stream:
-                case ():
-                    return mzero
                 case (s1, _):
-                    return unit(s1)
+                    return lambda: continuation(unit(s1))
                 case _:
-                    return onceo_loop(stream())
-
-        return onceo_loop(g(state))
+                    stream = stream()
+        return lambda: continuation(mzero)
 
     return _onceo
 
@@ -939,8 +970,13 @@ def freshn(n: int, fp: Callable) -> Goal:
 
 
 def pull(s: Stream):
-    while callable(s):
-        s = s()
+    while True:
+        if type(s) is Thunk:
+            s = trampoline_goal(s)
+        elif callable(s):
+            s = s()
+        else:
+            break
     return s
 
 
@@ -1015,9 +1051,9 @@ def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
     state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
-        *map(enforce_constraints, fresh_vars),
+        # *map(enforce_constraints, fresh_vars),
     )
-    return reify(take(n, goal(state)), *fresh_vars)
+    return reify(take(n, trampoline_goal(goal, state, identity)), *fresh_vars)
 
 
 def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
@@ -1026,9 +1062,9 @@ def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
     state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
-        *map(enforce_constraints, fresh_vars),
+        # *map(enforce_constraints, fresh_vars),
     )
-    return reify(take_all(goal(state)), *fresh_vars)
+    return reify(take_all(goal(state, identity)), *fresh_vars)
 
 
 def process_prefix(
@@ -1041,14 +1077,16 @@ def process_prefix(
 
 
 def enforce_constraints(x: Var):
-    return compose_constraints(
+    return conj(
         enforce_constraints_neq(x),
         enforce_constraints_fd(x),
     )
 
 
 def reify_constraints(x: Value, s: Substitution):
-    return compose_constraints(
-        reify_constraints_neq(x, s),
-        reify_constraints_fd(x, s),
+    return goal_from_constraint(
+        compose_constraints(
+            reify_constraints_neq(x, s),
+            reify_constraints_fd(x, s),
+        )
     )
