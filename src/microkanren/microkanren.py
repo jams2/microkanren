@@ -203,9 +203,9 @@ def goal_from_constraint(constraint: ConstraintFunction) -> Goal:
     def _goal(state: State, continuation):
         match constraint(state):
             case None:
-                return lambda: continuation(mzero)
+                return Thunk(continuation, mzero)
             case _ as next_state:
-                return lambda: continuation(unit(next_state))
+                return Thunk(continuation, unit(next_state))
 
     return goal(_goal)
 
@@ -251,11 +251,19 @@ def unit(state: State) -> Stream:
 def mplus(s1: Stream, s2: Stream, continuation):
     match s1:
         case ():
-            return lambda: continuation(s2)
-        case f if callable(f):
-            return lambda: lambda: mplus(s2, f(), continuation)
+            return Thunk(continuation, s2)
+        case ImmatureStream(_, _) as f:
+            return Thunk(
+                f,
+                lambda value: Thunk(ImmatureStream, mplus, s2, value, continuation),
+            )
         case (head, tail):
-            return lambda: continuation((head, mplus(s2, tail, identity)))
+            return Thunk(
+                mplus,
+                s2,
+                tail,
+                lambda mplus_result: Thunk(continuation, (head, mplus_result)),
+            )
         case _:
             raise InvalidStream
 
@@ -263,11 +271,22 @@ def mplus(s1: Stream, s2: Stream, continuation):
 def bind(stream: Stream, g: Goal, continuation):
     match stream:
         case ():
-            return lambda: continuation(mzero)
-        case f if callable(f):
-            return lambda: lambda: bind(f(), g, continuation)
+            return Thunk(continuation, mzero)
+        case ImmatureStream(_, _) as f:
+            return Thunk(
+                f, lambda value: Thunk(ImmatureStream, bind, value, g, continuation)
+            )
         case (s1, s2):
-            return lambda: mplus(g(s1), bind(s2, g), identity)
+            return Thunk(
+                bind,
+                s2,
+                g,
+                lambda bind_result: Thunk(
+                    g,
+                    s1,
+                    lambda g_result: Thunk(mplus, g_result, bind_result, continuation),
+                ),
+            )
         case _:
             raise InvalidStream
 
@@ -356,7 +375,7 @@ class goal:
         self.f = goal_func
 
     def __call__(self, state, continuation):
-        return lambda: self.f(state, continuation)
+        return Thunk(self.f, state, continuation)
 
     def __or__(self, other):
         # Use disj and conj instead of _disj and _conj, as the former delay their goals
@@ -377,12 +396,14 @@ class DelayedGoal(goal):
         )
 
 
-def snooze(g: Goal, *args: Value):
-    return goal(lambda state, continuation: lambda: g(*args)(state, continuation))
+def snooze(g: Goal, *args: Value) -> DelayedGoal:
+    return DelayedGoal(g, *args)
 
 
 def delay(g: Goal) -> Goal:
-    return goal(lambda state, continuation: lambda: g(state, continuation))
+    return goal(
+        lambda state, continuation: Thunk(ImmatureStream, g, state, continuation)
+    )
 
 
 def disj(g: Goal, *goals: Goal) -> Goal:
@@ -394,10 +415,13 @@ def disj(g: Goal, *goals: Goal) -> Goal:
 
 def _disj(g1: Goal, g2: Goal) -> Goal:
     def __disj(state: State, continuation) -> Stream:
-        return lambda: g2(
+        return Thunk(
+            g2,
             state,
-            lambda g2_res: lambda: g1(
-                state, lambda g1_res: lambda: mplus(g1_res, g2_res, continuation)
+            lambda g2_res: Thunk(
+                g1,
+                state,
+                lambda g1_res: Thunk(mplus, g1_res, g2_res, continuation),
             ),
         )
 
@@ -413,8 +437,8 @@ def conj(g: Goal, *goals: Goal) -> Goal:
 
 def _conj(g1: Goal, g2: Goal) -> Goal:
     def __conj(state: State, continuation) -> Stream:
-        return lambda: g1(
-            state, lambda g1_result: lambda: bind(g1_result, g2, continuation)
+        return Thunk(
+            g1, state, lambda g1_result: Thunk(bind, g1_result, g2, continuation)
         )
 
     return goal(__conj)
@@ -928,10 +952,10 @@ def onceo(g: Goal) -> Goal:
 def fresh(fp: Callable) -> Goal:
     n = fp.__code__.co_argcount
 
-    def _fresh(state: State, continuation) -> Stream:
+    def _fresh(state: State) -> Stream:
         i = state.var_count
         vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.set(var_count=i + n), continuation)
+        return fp(*vs)(state.set(var_count=i + n))
 
     return goal(_fresh)
 
@@ -1029,7 +1053,7 @@ def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
         f_fresh_vars(*fresh_vars),
         # *map(enforce_constraints, fresh_vars),
     )
-    return reify(take(n, goal(state, identity)), *fresh_vars)
+    return reify(take(n, trampoline_goal(goal, state, identity)), *fresh_vars)
 
 
 def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):

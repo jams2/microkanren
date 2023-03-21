@@ -56,7 +56,10 @@ class TestEq:
 class TestSnooze:
     def test_fives(self):
         def fives(x):
-            return eq(x, 5) | snooze(fives, x)
+            def _fives(state, k):
+                return (eq(x, 5) | snooze(_fives, x))(state, k)
+
+            return goal(_fives)
 
         result = run(3, lambda x: fives(x))
         assert result == [5, 5, 5]
