@@ -253,7 +253,7 @@ def mplus(s1: Stream, s2: Stream, continuation):
         case ():
             return lambda: continuation(s2)
         case f if callable(f):
-            return lambda: lambda: mplus(s2, f(), continuation)
+            return lambda: mplus(s2, f(), continuation)
         case (head, tail):
             return lambda: continuation((head, mplus(s2, tail, identity)))
         case _:
@@ -265,7 +265,7 @@ def bind(stream: Stream, g: Goal, continuation):
         case ():
             return lambda: continuation(mzero)
         case f if callable(f):
-            return lambda: lambda: bind(f(), g, continuation)
+            return lambda: bind(f(), g, continuation)
         case (s1, s2):
             return lambda: mplus(g(s1), bind(s2, g), identity)
         case _:
@@ -957,21 +957,25 @@ def pull(s: Stream):
 
 
 def take_all(s: Stream) -> list[State]:
+    result = []
     s1 = pull(s)
-    if s1 == ():
-        return []
-    first, rest = s1
-    return [first, *take_all(rest)]
+    while s1 != ():
+        first, rest = s1
+        result.append(first)
+        s1 = pull(rest)
+    return result
 
 
 def take(n, s: Stream) -> list[State]:
-    if n == 0:
-        return []
+    i = 0
+    result = []
     s1 = pull(s)
-    if s1 == ():
-        return []
-    first, rest = s1
-    return [first, *take(n - 1, rest)]
+    while i < n and s1 != ():
+        first, rest = s1
+        result.append(first)
+        i += 1
+        s1 = pull(rest)
+    return result
 
 
 def reify(states: list[State], *top_level_vars: Var):
@@ -1027,7 +1031,7 @@ def run(n: int, f_fresh_vars: Callable[[Var, ...], Goal]):
     state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
-        # *map(enforce_constraints, fresh_vars),
+        *map(enforce_constraints, fresh_vars),
     )
     return reify(take(n, goal(state, identity)), *fresh_vars)
 
@@ -1038,7 +1042,7 @@ def run_all(f_fresh_vars: Callable[[Var, ...], Goal]):
     state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
-        # *map(enforce_constraints, fresh_vars),
+        *map(enforce_constraints, fresh_vars),
     )
     return reify(take_all(goal(state, identity)), *fresh_vars)
 
