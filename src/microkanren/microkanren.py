@@ -367,16 +367,11 @@ def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
     return _disj(delay(g), disj(g2, *rest))
 
 
-def _disj(g1: Goal, g2: Goal) -> Goal:
-    def __disj(state: State, continuation) -> Stream:
-        return lambda: g2(
-            state,
-            lambda g2_res: lambda: g1(
-                state, lambda g1_res: lambda: mplus(g1_res, g2_res, continuation)
-            ),
-        )
+def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
+    def __disj(state: State, continuation) -> StreamThunk:
+        return lambda: mplus(g1(state, identity), g2(state, identity), continuation)
 
-    return goal(__disj)
+    return Goal(__disj)
 
 
 def conj(g: GoalProto, *goals: GoalProto) -> GoalProto:
