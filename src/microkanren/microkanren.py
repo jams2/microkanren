@@ -267,7 +267,7 @@ def bind(stream: Stream, g: Goal, continuation):
         case f if callable(f):
             return lambda: bind(f(), g, continuation)
         case (s1, s2):
-            return lambda: mplus(g(s1), bind(s2, g), identity)
+            return lambda: mplus(g(s1, identity), bind(s2, g, identity), continuation)
         case _:
             raise InvalidStream
 
@@ -413,9 +413,10 @@ def conj(g: Goal, *goals: Goal) -> Goal:
 
 def _conj(g1: Goal, g2: Goal) -> Goal:
     def __conj(state: State, continuation) -> Stream:
-        return lambda: g1(
-            state, lambda g1_result: lambda: bind(g1_result, g2, continuation)
-        )
+        def bind_continuation(g1_result):
+            return lambda: bind(g1_result, g2, continuation)
+
+        return lambda: g1(state, bind_continuation)
 
     return goal(__conj)
 
@@ -428,7 +429,7 @@ def eq(u: Value, v: Value) -> Goal:
             return None
         elif new_sub == state.sub:
             # Unification succeeded without new associations
-            return unit(state)
+            return state
         else:
             prefix = get_sub_prefix(new_sub, state.sub)
             return process_prefix(prefix, state.constraints)(state.set(sub=new_sub))
@@ -770,7 +771,7 @@ def enforce_constraints_neq(_) -> Stream:
     return lambda state, continuation: lambda: continuation(unit(state))
 
 
-def reify_constraints_neq(x: Var, r: Substitution) -> Goal:
+def reify_constraints_neq(x: Var, r: Substitution) -> ConstraintFunction:
     def _reify_constraints_neq(state: State):
         return state
 
@@ -843,14 +844,8 @@ def force_answer(x: Var | list[Var]) -> Goal:
             case Var(_) as var if (d := state.get_domain(var)) is not None:
                 return lambda: map_sum(lambda val: eq(x, val), d)(state, continuation)
             case (first, *rest):
-                return lambda: force_answer(rest)(
-                    state,
-                    lambda value: lambda: force_answer(first)(
-                        state,
-                        lambda value_2: lambda: conj(value, value_2)(
-                            state, continuation
-                        ),
-                    ),
+                return lambda: conj(force_answer(first), force_answer(rest))(
+                    state, continuation
                 )
             case _:
                 return lambda: succeed()(state, continuation)
@@ -946,35 +941,28 @@ def freshn(n: int, fp: Callable) -> Goal:
 
 
 def pull(s: Stream):
-    while True:
-        if type(s) is Thunk:
-            s = trampoline_goal(s)
-        elif callable(s):
-            s = s()
-        else:
-            break
+    while callable(s):
+        s = s()
     return s
 
 
 def take_all(s: Stream) -> list[State]:
     result = []
-    s1 = pull(s)
-    while s1 != ():
-        first, rest = s1
+    rest = s
+    while (s := pull(rest)) != ():
+        first, rest = s
         result.append(first)
-        s1 = pull(rest)
     return result
 
 
 def take(n, s: Stream) -> list[State]:
     i = 0
     result = []
-    s1 = pull(s)
-    while i < n and s1 != ():
-        first, rest = s1
+    rest = s
+    while i < n and (s := pull(rest)) != ():
+        first, rest = s
         result.append(first)
         i += 1
-        s1 = pull(rest)
     return result
 
 
@@ -1056,14 +1044,14 @@ def process_prefix(
     )
 
 
-def enforce_constraints(x: Var):
+def enforce_constraints(x: Var) -> Goal:
     return conj(
         enforce_constraints_neq(x),
         enforce_constraints_fd(x),
     )
 
 
-def reify_constraints(x: Value, s: Substitution):
+def reify_constraints(x: Value, s: Substitution) -> ConstraintFunction:
     return goal_from_constraint(
         compose_constraints(
             reify_constraints_neq(x, s),
