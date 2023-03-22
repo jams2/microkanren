@@ -1,4 +1,3 @@
-import pytest
 
 from pyrsistent import pmap
 
@@ -8,7 +7,6 @@ from microkanren import (
     eq,
     extend_substitution,
     get_sub_prefix,
-    goal,
     run,
     run_all,
     snooze,
@@ -56,8 +54,7 @@ class TestEq:
 
 
 class TestSnooze:
-    @pytest.mark.skip
-    def test_fives(self):
+    def test_recursive_goals(self):
         def fives(x):
             return eq(x, 5) | snooze(fives, x)
 

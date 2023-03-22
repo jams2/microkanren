@@ -10,7 +10,6 @@ from microkanren import (
     eq,
     fail,
     fresh,
-    goal,
     ifte,
     neq,
     nil,
@@ -76,7 +75,7 @@ def inserto(x, ys, zs):
             ),
         )(state)
 
-    return goal(_inserto)
+    return Goal(_inserto)
 
 
 def assoco(x, xs, y):
@@ -114,7 +113,7 @@ def rembero(x, xs, out):
             ),
         )(state)
 
-    return goal(_rembero)
+    return Goal(_rembero)
 
 
 def joino(prefix, suffix, sep, out):

@@ -181,7 +181,8 @@ class TestLargeGoals:
                 lambda *vs: conj(
                     grido(a, *vs[:81]),
                     grido(b, *vs[81:]),
-                    infd(vs, mkrange(1, 9)),
+                    *map(lambda v: domfd(v, mkrange(1, 9)), vs[0:10]),
+                    alldifffd(*vs[:9]),
                     eq(a, b),
                 ),
             )
