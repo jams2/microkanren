@@ -6,123 +6,20 @@ TODO: can we improve memory efficiency of domains by storing min/max of interval
 
 TODO: maybe store constraints as an inverse mapping of operands to constraints for more
 efficient access
-
-TODO: look at trampolining
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
-from itertools import filterfalse, tee
 from typing import Any, Optional, Protocol, TypeAlias, TypeVar
 
 from pyrsistent import PClass, field, pmap
 from pyrsistent.typing import PMap
 
+from .cons import Cons, cons, to_python
+from .utils import identity, partition
+
 NOT_FOUND = object()
-
-
-def identity(x):
-    return x
-
-
-def partition(pred, iterable):
-    t1, t2 = tee(iterable)
-    return filter(pred, t1), filterfalse(pred, t2)
-
-
-@dataclass(slots=True)
-class nil:
-    pass
-
-
-@dataclass(slots=True)
-class Char:
-    i: int
-
-    def __repr__(self):
-        return f"Char({self.i})"
-
-
-@dataclass(slots=True, repr=False)
-class cons:
-    head: Any
-    tail: Any
-    is_proper: bool = False
-
-    def __init__(self, head, tail):
-        self.head = head
-        self.tail = tail
-        match tail:
-            case nil():
-                self.is_proper = True
-            case cons(_, _) as d if d.is_proper:
-                self.is_proper = True
-            case _:
-                self.is_proper = False
-
-    def __iter__(self):
-        yield self.head
-        yield self.tail
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.head!r}, {self.tail!r})"
-
-    @classmethod
-    def from_python(cls, ls):
-        accum = nil()
-        for x in reversed(ls):
-            accum = cons(x, accum)
-        return accum
-
-    def _to_str(self):
-        return "".join(chr(char.i) for char in self._to_list())
-
-    def _to_list(self):
-        ls = [to_python(self.head)]
-        cons = self.tail
-        while cons != nil():
-            ls.append(to_python(cons.head))
-            cons = cons.tail
-        return ls
-
-    def to_python(self):
-        if not self.is_proper:
-            raise ValueError("Can't convert improper cons list to Python")
-        if isinstance(self.head, Char):
-            return self._to_str()
-        return self._to_list()
-
-
-def string(cs):
-    return cons.from_python([Char(ord(c)) for c in cs])
-
-
-def from_python(obj):
-    if isinstance(obj, list):
-        return cons.from_python(list(map(from_python, obj)))
-    elif isinstance(obj, dict):
-        return cons.from_python(
-            [(from_python(k), from_python(v)) for k, v in obj.items()]
-        )
-    elif isinstance(obj, tuple):
-        return tuple(from_python(x) for x in obj)
-    elif isinstance(obj, str):
-        return string(obj)
-    return obj
-
-
-def to_python(obj):
-    if obj == nil():
-        return []
-    elif isinstance(obj, cons):
-        if obj.is_proper:
-            return obj.to_python()
-        return cons(to_python(obj.head), to_python(obj.tail))
-    elif isinstance(obj, tuple):
-        return tuple(to_python(x) for x in obj)
-    else:
-        return obj
 
 
 @dataclass(slots=True, frozen=True)
@@ -138,7 +35,6 @@ class ReifiedVar:
         return f"_.{self.i}"
 
 
-Cons: TypeAlias = cons | nil
 Value: TypeAlias = Var | int | str | bool | tuple["Value", ...] | list["Value"] | Cons
 Substitution: TypeAlias = PMap[Var, Value]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
@@ -369,6 +265,19 @@ def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
     def __disj(state: State, continuation) -> StreamThunk:
+        """
+        A strict CPS implementation of this function diverges on recursive goals, e.g. the
+        fives test:
+
+        return lambda: g1(
+            state,
+            lambda g1_res: lambda: g2(
+                state, lambda g2_res: lambda: mplus(g1_res, g2_res, continuation)
+            ),
+        )
+
+        TODO: figure out why
+        """
         return lambda: mplus(g1(state, identity), g2(state, identity), continuation)
 
     return Goal(__disj)
