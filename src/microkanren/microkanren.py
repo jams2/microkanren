@@ -266,8 +266,8 @@ def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
     def __disj(state: State, continuation) -> StreamThunk:
         """
-        A strict CPS implementation of this function diverges on recursive goals, e.g. the
-        fives test:
+        A strict CPS implementation of this function diverges on recursive goals, e.g.
+        the fives test:
 
         return lambda: g1(
             state,
@@ -361,7 +361,7 @@ def neqc(pairs: tuple[tuple[Value, Value], ...]) -> ConstraintFunction:
         elif new_sub == state.sub:
             return None
         prefix = get_sub_prefix(new_sub, state.sub)
-        remaining_pairs = [x for x in prefix.items()]
+        remaining_pairs = list(prefix.items())
         return state.set(
             constraints=extend_constraint_store(
                 Constraint(neqc, [remaining_pairs]), state.constraints
@@ -397,7 +397,7 @@ def infd(values: tuple[Value], domain, /) -> Goal:
     infdc = reduce(
         lambda c, v: compose_constraints(c, domfdc(v, domain)),
         values,
-        identity_constraint,
+        identity,
     )
     return goal_from_constraint(infdc)
 
@@ -555,7 +555,7 @@ def exclude_from_domains(vs: list[Var], values: set[Value]) -> ConstraintFunctio
         constraint = reduce(
             compose_constraints,
             (process_domain(var, dom - values) for var, dom in with_domains),
-            identity_constraint,
+            identity,
         )
         return constraint(state)
 
@@ -601,10 +601,6 @@ def resolve_storable_domain(domain: set[int], x: Var, state: State) -> State | N
     return state.set(domains=extend_domain_store(x, domain, state.domains))
 
 
-def identity_constraint(state):
-    return state
-
-
 def bind_constraints(f, g) -> ConstraintFunction:
     def _bind_constraints(state: State) -> State | None:
         maybe_state = f(state)
@@ -622,7 +618,7 @@ def run_constraints(
 ) -> ConstraintFunction:
     match constraints:
         case []:
-            return identity_constraint
+            return identity
         case [first, *rest]:
             if any_relevant_vars(first.operands, xs):
                 return compose_constraints(
@@ -654,11 +650,11 @@ def process_prefix_neq(
     return run_constraints(prefix_vars, constraints)
 
 
-def enforce_constraints_neq(_) -> GoalProto:
+def enforce_constraints_neq(_: Var) -> GoalProto:
     return lambda state, continuation: lambda: continuation(unit(state))
 
 
-def reify_constraints_neq(x: Var, r: Substitution) -> ConstraintFunction:
+def reify_constraints_neq(_: Var, __: Substitution) -> ConstraintFunction:
     def _reify_constraints_neq(state: State):
         return state
 
@@ -669,7 +665,7 @@ def process_prefix_fd(
     prefix: Substitution, constraints: ConstraintStore
 ) -> ConstraintFunction:
     if not prefix:
-        return identity_constraint
+        return identity
     (x, v), *_ = prefix.items()
     t = compose_constraints(
         run_constraints([x], constraints),
@@ -679,8 +675,9 @@ def process_prefix_fd(
     def _process_prefix_fd(state: State):
         domain_x = state.get_domain(x)
         if domain_x is not None:
-            # We have a new association for x (as x is in prefix), and we found an existing
-            # domain for x. Check that the new association does not violate the fd constraint
+            # We have a new association for x (as x is in prefix), and we found an
+            # existing domain for x. Check that the new association does not violate
+            # the fd constraint
             return compose_constraints(process_domain(v, domain_x), t)(state)
         return t(state)
 
@@ -697,7 +694,7 @@ def enforce_constraints_fd(x: Var) -> Goal:
 
 
 # TODO
-def reify_constraints_fd(x: Var, r: Substitution) -> ConstraintFunction:
+def reify_constraints_fd(_: Var, __: Substitution) -> ConstraintFunction:
     def _reify_constraints_fd(state: State) -> State | None:
         return state
         # raise UnboundVariables()
@@ -922,26 +919,56 @@ def run_all(f_fresh_vars: Callable[..., Goal]):
     return reify(take_all(goal(state, identity)), *fresh_vars)
 
 
+def default_process_prefix(*_):
+    return identity
+
+
+def default_enforce_constraints(*_):
+    return succeed()
+
+
+def default_reify_constraints(*_):
+    return succeed()
+
+
+__PROCESS_PREFIX__: Callable[
+    [Substitution, ConstraintStore],
+    ConstraintFunction,
+] = default_process_prefix
+__ENFORCE_CONSTRAINTS__: Callable[[Var], GoalProto] = default_enforce_constraints
+__REIFY_CONSTRAINTS__: Callable[
+    [Var, Substitution],
+    GoalProto,
+] = default_reify_constraints
+
+
+def set_process_prefix(constraint_function):
+    global __PROCESS_PREFIX__
+    __PROCESS_PREFIX__ = constraint_function
+
+
+def set_enforce_constraints(goal):
+    global __ENFORCE_CONSTRAINTS__
+    __ENFORCE_CONSTRAINTS__ = goal
+
+
+def set_reify_constraints(goal):
+    global __REIFY_CONSTRAINTS__
+    __REIFY_CONSTRAINTS__ = goal
+
+
 def process_prefix(
     prefix: Substitution, constraints: ConstraintStore
 ) -> ConstraintFunction:
-    return compose_constraints(
-        process_prefix_neq(prefix, constraints),
-        process_prefix_fd(prefix, constraints),
-    )
+    global __PROCESS_PREFIX__
+    return __PROCESS_PREFIX__(prefix, constraints)
 
 
 def enforce_constraints(x: Var) -> Goal:
-    return conj(
-        enforce_constraints_neq(x),
-        enforce_constraints_fd(x),
-    )
+    global __ENFORCE_CONSTRAINTS__
+    return __ENFORCE_CONSTRAINTS__(x)
 
 
 def reify_constraints(x: Var, s: Substitution) -> Goal:
-    return goal_from_constraint(
-        compose_constraints(
-            reify_constraints_neq(x, s),
-            reify_constraints_fd(x, s),
-        )
-    )
+    global __REIFY_CONSTRAINTS__
+    return __REIFY_CONSTRAINTS__(x, s)

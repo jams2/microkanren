@@ -46,6 +46,8 @@ select = [
   "I",   # isort
   "ARG", # unused arguments
   "PT",  # pytest style
+  "T10", # flake8-debugger
+  "C4",  # flake8-comprehensions
 ]
 
 [tool.pyright]

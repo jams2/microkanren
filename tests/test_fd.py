@@ -5,8 +5,13 @@ import pytest
 
 from microkanren import (
     alldifffd,
+    compose_constraints,
     conj,
+    default_enforce_constraints,
+    default_process_prefix,
     domfd,
+    enforce_constraints_fd,
+    enforce_constraints_neq,
     eq,
     freshn,
     infd,
@@ -16,16 +21,44 @@ from microkanren import (
     neq,
     neqfd,
     plusfd,
+    process_prefix_fd,
+    process_prefix_neq,
     run,
     run_all,
+    set_enforce_constraints,
+    set_process_prefix,
 )
+
+
+@pytest.fixture(autouse=True, scope="module")
+def setup_process_prefix():
+    def process_prefix(prefix, constraints):
+        return compose_constraints(
+            process_prefix_neq(prefix, constraints),
+            process_prefix_fd(prefix, constraints),
+        )
+
+    yield set_process_prefix(process_prefix)
+    set_process_prefix(default_process_prefix)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def setup_enforce_constraints():
+    def enforce_constraints(var):
+        return conj(
+            enforce_constraints_neq(var),
+            enforce_constraints_fd(var),
+        )
+
+    yield set_enforce_constraints(enforce_constraints)
+    set_enforce_constraints(default_enforce_constraints)
 
 
 class TestFdConstraints:
     @pytest.mark.parametrize("domain", [make_domain(1, 2, 3), make_domain(5, 7, 9)])
     def test_domfd(self, domain):
         result = run_all(lambda x: domfd(x, domain))
-        assert set(result) == {x for x in domain}
+        assert set(result) == set(domain)
 
     @pytest.mark.parametrize(
         ("a", "b", "intersection"),
@@ -55,7 +88,7 @@ class TestFdConstraints:
     )
     def test_ltefd(self, a, b, expected_x):
         result = run_all(lambda x, y: domfd(x, a) & domfd(y, b) & ltefd(x, y))
-        assert set(x[0] for x in result) == expected_x
+        assert {x[0] for x in result} == expected_x
         for x, y in result:
             assert x <= y
 
@@ -109,7 +142,7 @@ class TestFdConstraints:
     )
     def test_neqfd(self, a, b, expected):
         result = run_all(lambda x, y: domfd(x, a) & domfd(y, b) & neqfd(x, y))
-        assert set(x[0] for x in result) == expected
+        assert {x[0] for x in result} == expected
         for x, y in result:
             assert x != y
 
@@ -189,10 +222,7 @@ class TestLargeGoals:
                     for block in range(0, size, block_size)
                 ]
                 return conj(
-                    *map(
-                        lambda block: alldifffd(*block),
-                        blocks,
-                    ),
+                    *(alldifffd(*block) for block in blocks),
                 )
 
             def rowo(vs):
@@ -200,7 +230,7 @@ class TestLargeGoals:
                     tuple(vs[row + i] for i in range(size))
                     for row in range(0, size * size, size)
                 ]
-                return conj(*map(lambda row: alldifffd(*row), rows))
+                return conj(*(alldifffd(*row) for row in rows))
 
             block_size = int(sqrt(size))
 
