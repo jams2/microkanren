@@ -8,7 +8,7 @@ TODO: maybe store constraints as an inverse mapping of operands to constraints f
 efficient access
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
 from typing import Any, Optional, Protocol, TypeAlias, TypeVar
@@ -850,10 +850,26 @@ def take(n, s: Stream) -> list[State]:
     return result
 
 
+def itake(s: Stream) -> list[State]:
+    rest = s
+    while (s := pull(rest)) != ():
+        first, rest = s
+        yield first
+
+
 def reify(states: list[State], *top_level_vars: Var):
     if len(top_level_vars) == 1:
         return [reify_state(s, top_level_vars[0]) for s in states]
     return [tuple(reify_state(s, var) for var in top_level_vars) for s in states]
+
+
+def ireify(states: Generator[State, None, None], *top_level_vars: Var):
+    if len(top_level_vars) == 1:
+        yield from (reify_state(s, top_level_vars[0]) for s in states)
+    else:
+        yield from (
+            tuple(reify_state(s, var) for var in top_level_vars) for s in states
+        )
 
 
 def reify_state(state: State, v: Var) -> Value:
@@ -917,6 +933,17 @@ def run_all(f_fresh_vars: Callable[..., Goal]):
         *map(enforce_constraints, fresh_vars),
     )
     return reify(take_all(goal(state, identity)), *fresh_vars)
+
+
+def irun(f_fresh_vars: Callable[..., Goal]):
+    n_vars = f_fresh_vars.__code__.co_argcount
+    fresh_vars = tuple(Var(i) for i in range(n_vars))
+    state = State.empty().set(var_count=n_vars)
+    goal = conj(
+        f_fresh_vars(*fresh_vars),
+        *map(enforce_constraints, fresh_vars),
+    )
+    return ireify(itake(goal(state, identity)), *fresh_vars)
 
 
 def default_process_prefix(*_):
