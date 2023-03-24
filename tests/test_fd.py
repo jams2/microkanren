@@ -1,4 +1,5 @@
 from itertools import permutations
+from math import sqrt
 
 import pytest
 
@@ -166,26 +167,53 @@ class TestFdConstraints:
 
 
 class TestLargeGoals:
-    @pytest.mark.skip()
     def test_sudoku(self):
-        def grido(grid, *vs):
-            assert len(vs) == 81
-            return eq(
-                grid,
-                [tuple(vs[j] for j in range(i, i + 9)) for i in range(0, 81, 9)],
-            )
+        def sudokuo(a, b, size):
+            def grido(grid, vs):
+                return eq(
+                    grid,
+                    [
+                        tuple(vs[j] for j in range(i, i + size))
+                        for i in range(0, size * size, size)
+                    ],
+                )
 
-        def sudokuo(a, b):
+            def blocko(vs, block_size):
+                blocks = [
+                    tuple(
+                        vs[segment + block + row + i]
+                        for row in range(0, size * block_size, size)
+                        for i in range(block_size)
+                    )
+                    for segment in range(0, size * size, size * block_size)
+                    for block in range(0, size, block_size)
+                ]
+                return conj(
+                    *map(
+                        lambda block: alldifffd(*block),
+                        blocks,
+                    ),
+                )
+
+            def rowo(vs):
+                rows = [
+                    tuple(vs[row + i] for i in range(size))
+                    for row in range(0, size * size, size)
+                ]
+                return conj(*map(lambda row: alldifffd(*row), rows))
+
+            block_size = int(sqrt(size))
+
             return freshn(
-                162,
+                size * size,
                 lambda *vs: conj(
-                    grido(a, *vs[:81]),
-                    grido(b, *vs[81:]),
-                    *map(lambda v: domfd(v, mkrange(1, 9)), vs[0:10]),
-                    alldifffd(*vs[:9]),
+                    grido(a, vs),
+                    infd(vs, mkrange(1, size)),
+                    rowo(vs),
+                    blocko(vs, block_size),
                     eq(a, b),
                 ),
             )
 
-        run(1, lambda a, b: sudokuo(a, b))
-        breakpoint()
+        result = run(1, lambda a, b: sudokuo(a, b, 4))
+        assert result != []

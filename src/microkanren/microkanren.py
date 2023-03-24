@@ -16,8 +16,8 @@ from typing import Any, Optional, Protocol, TypeAlias, TypeVar
 from pyrsistent import PClass, field, pmap
 from pyrsistent.typing import PMap
 
-from .cons import Cons, cons, to_python
-from .utils import identity, partition
+from microkanren.cons import Cons, cons, to_python
+from microkanren.utils import identity, partition
 
 NOT_FOUND = object()
 
