@@ -13,11 +13,43 @@ classifiers = [
     "Operating System :: OS Independent",
     "Development Status :: 2 - Pre-Alpha",
 ]
+dependencies = [
+    "pyrsistent ~= 0.19"
+]
 
 [project.urls]
 "Homepage" = "https://github.com/jams2/microkanren"
 "Bug Tracker" = "https://github.com/jams2/microkanren/issues"
 
+[project.optional-dependencies]
+dev = [
+    "black ~= 23.1.0",
+    "ruff ~= 0.0.256",
+]
+testing = ["pytest ~= 7.2.2", "pytest-profiling ~= 1.7.0"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+minversion = 7.0
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+select = [
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "UP",  # pyupgrade
+  "I",   # isort
+  "ARG", # unused arguments
+  "PT",  # pytest style
+  "T10", # flake8-debugger
+  "C4",  # flake8-comprehensions
+]
+
+[tool.pyright]
+pythonVersion = "3.10"
+stubPath = ""
