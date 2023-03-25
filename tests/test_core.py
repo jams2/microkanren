@@ -1,4 +1,3 @@
-
 from pyrsistent import pmap
 
 from microkanren import (
@@ -53,16 +52,22 @@ class TestEq:
         assert result == [1]
 
 
-class TestSnooze:
-    def test_recursive_goals(self):
-        def fives(x):
-            return eq(x, 5) | snooze(fives, x)
+def fives(x):
+    return eq(x, 5) | snooze(fives, x)
 
-        result = run(3, lambda x: fives(x))
-        assert result == [5, 5, 5]
 
-        def sixes(x):
-            return eq(x, 6) | snooze(sixes, x)
+def sixes(x):
+    return eq(x, 6) | snooze(sixes, x)
 
-        result = run(8, lambda x: fives(x) | sixes(x))
-        assert result == [5, 6, 5, 6, 5, 6, 5, 6]
+
+def test_snooze():
+    result = run(3, lambda x: fives(x))
+    assert result == [5, 5, 5]
+
+    result = run(8, lambda x: fives(x) | sixes(x))
+    assert result == [5, 6, 5, 6, 5, 6, 5, 6]
+
+
+def test_recursion():
+    # Check we don't blow python's stack
+    assert len(run(10000, lambda x: fives(x))) == 10000

@@ -101,7 +101,7 @@ Stream: TypeAlias = tuple[()] | Callable[[], "Stream"] | tuple[State, "Stream"]
 
 
 class GoalProto(Protocol):
-    def __call__(self, state: State, continuation: Callable[[Any], Any]) -> StreamThunk:
+    def __call__(self, state: State) -> StreamThunk:
         ...
 
 
@@ -115,8 +115,8 @@ class Goal:
         update_wrapper(self, goal)
         self.goal = goal
 
-    def __call__(self, state: State, continuation) -> StreamThunk:
-        return lambda: self.goal(state, continuation)
+    def __call__(self, state: State) -> StreamThunk:
+        return lambda: self.goal(state)
 
     def __or__(self, other):
         # Use disj and conj instead of _disj and _conj, as the former delay their goals
@@ -126,13 +126,13 @@ class Goal:
         return conj(self, other)
 
 
-def goal_from_constraint(constraint: ConstraintFunction) -> Goal:
-    def _goal(state: State, continuation) -> StreamThunk:
+def goal_from_constraint(constraint: ConstraintFunction) -> GoalProto:
+    def _goal(state: State) -> StreamThunk:
         match constraint(state):
             case None:
-                return lambda: continuation(mzero)
+                return lambda: mzero
             case _ as next_state:
-                return lambda: continuation(unit(next_state))
+                return lambda: unit(next_state)
 
     return Goal(_goal)
 
@@ -148,26 +148,26 @@ def unit(state: State) -> Stream:
     return (state, mzero)
 
 
-def mplus(s1: Stream, s2: Stream, continuation):
+def mplus(s1: Stream, s2: Stream) -> StreamThunk:
     match s1:
         case ():
-            return lambda: continuation(s2)
+            return lambda: s2
         case f if callable(f):
-            return lambda: mplus(s2, f(), continuation)
+            return lambda: mplus(s2, f())
         case (head, tail):
-            return lambda: continuation((head, mplus(s2, tail, identity)))
+            return lambda: (head, mplus(s2, tail))
         case _:
             raise InvalidStream
 
 
-def bind(stream: Stream, g: GoalProto, continuation) -> StreamThunk:
+def bind(stream: Stream, g: GoalProto) -> StreamThunk:
     match stream:
         case ():
-            return lambda: continuation(mzero)
+            return lambda: mzero
         case f if callable(f):
-            return lambda: bind(f(), g, continuation)
+            return lambda: bind(f(), g)
         case (s1, s2):
-            return lambda: mplus(g(s1, identity), bind(s2, g, identity), continuation)
+            return lambda: mplus(g(s1), bind(s2, g))
         case _:
             raise InvalidStream
 
@@ -232,28 +232,28 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
 
 
 def succeed() -> GoalProto:
-    def _succeed(state, continuation):
-        return eq(True, True)(state, continuation)
+    def _succeed(state):
+        return eq(True, True)(state)
 
     return Goal(_succeed)
 
 
 def fail() -> GoalProto:
-    def _fail(state, continuation):
-        return eq(False, True)(state, continuation)
+    def _fail(state):
+        return eq(False, True)(state)
 
     return Goal(_fail)
 
 
 def snooze(g: GoalConstructorProto, *args: Value) -> GoalProto:
-    def delayed_goal(state, continuation) -> StreamThunk:
-        return lambda: g(*args)(state, continuation)
+    def delayed_goal(state) -> StreamThunk:
+        return lambda: g(*args)(state)
 
     return Goal(delayed_goal)
 
 
 def delay(g: GoalProto) -> GoalProto:
-    return Goal(lambda state, continuation: lambda: g(state, continuation))
+    return Goal(lambda state: lambda: g(state))
 
 
 def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
@@ -264,21 +264,8 @@ def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 
 
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
-    def __disj(state: State, continuation) -> StreamThunk:
-        """
-        A strict CPS implementation of this function diverges on recursive goals, e.g.
-        the fives test:
-
-        return lambda: g1(
-            state,
-            lambda g1_res: lambda: g2(
-                state, lambda g2_res: lambda: mplus(g1_res, g2_res, continuation)
-            ),
-        )
-
-        TODO: figure out why
-        """
-        return lambda: mplus(g1(state, identity), g2(state, identity), continuation)
+    def __disj(state: State) -> StreamThunk:
+        return lambda: mplus(g1(state), g2(state))
 
     return Goal(__disj)
 
@@ -291,16 +278,13 @@ def conj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 
 
 def _conj(g1: GoalProto, g2: GoalProto) -> GoalProto:
-    def __conj(state: State, continuation) -> StreamThunk:
-        def bind_continuation(g1_result):
-            return lambda: bind(g1_result, g2, continuation)
-
-        return lambda: g1(state, bind_continuation)
+    def __conj(state: State) -> StreamThunk:
+        return lambda: bind(g1(state), g2)
 
     return Goal(__conj)
 
 
-def eq(u: Value, v: Value) -> Goal:
+def eq(u: Value, v: Value) -> GoalProto:
     def _eqc(state: State) -> State | None:
         new_sub = unify(u, v, state.sub)
         if new_sub is None:
@@ -348,7 +332,7 @@ def flip(f):
     return _flipped
 
 
-def neq(*pairs) -> Goal:
+def neq(*pairs) -> GoalProto:
     return goal_from_constraint(neqc(pairs))
 
 
@@ -381,7 +365,7 @@ def any_relevant_vars(operands, values):
             return False
 
 
-def domfd(x: Value, domain: set[int]) -> Goal:
+def domfd(x: Value, domain: set[int]) -> GoalProto:
     return goal_from_constraint(domfdc(x, domain))
 
 
@@ -393,7 +377,7 @@ def domfdc(x: Value, domain: set[int]) -> ConstraintFunction:
     return _domfdc
 
 
-def infd(values: tuple[Value], domain, /) -> Goal:
+def infd(values: tuple[Value], domain, /) -> GoalProto:
     infdc = reduce(
         lambda c, v: compose_constraints(c, domfdc(v, domain)),
         values,
@@ -402,7 +386,7 @@ def infd(values: tuple[Value], domain, /) -> Goal:
     return goal_from_constraint(infdc)
 
 
-def ltefd(u: Value, v: Value) -> Goal:
+def ltefd(u: Value, v: Value) -> GoalProto:
     return goal_from_constraint(ltefdc(u, v))
 
 
@@ -465,7 +449,7 @@ def plusfdc(u: Value, v: Value, w: Value) -> ConstraintFunction:
     return _plusfdc
 
 
-def neqfd(u: Value, v: Value) -> Goal:
+def neqfd(u: Value, v: Value) -> GoalProto:
     return goal_from_constraint(neqfdc(u, v))
 
 
@@ -501,7 +485,7 @@ def neqfdc(u: Value, v: Value) -> ConstraintFunction:
     return _neqfdc
 
 
-def alldifffd(*vs: Value) -> Goal:
+def alldifffd(*vs: Value) -> GoalProto:
     return goal_from_constraint(alldifffdc(*vs))
 
 
@@ -651,7 +635,7 @@ def process_prefix_neq(
 
 
 def enforce_constraints_neq(_: Var) -> GoalProto:
-    return lambda state, continuation: lambda: continuation(unit(state))
+    return lambda state: lambda: unit(state)
 
 
 def reify_constraints_neq(_: Var, __: Substitution) -> ConstraintFunction:
@@ -684,11 +668,11 @@ def process_prefix_fd(
     return _process_prefix_fd
 
 
-def enforce_constraints_fd(x: Var) -> Goal:
-    def _enforce_constraints(state: State, continuation) -> StreamThunk:
+def enforce_constraints_fd(x: Var) -> GoalProto:
+    def _enforce_constraints(state: State) -> StreamThunk:
         bound_vars = state.domains.keys()
         verify_all_bound(state.constraints, bound_vars)
-        return lambda: onceo(force_answer(bound_vars))(state, continuation)
+        return lambda: onceo(force_answer(bound_vars))(state)
 
     return conj(force_answer(x), Goal(_enforce_constraints))
 
@@ -723,16 +707,14 @@ def verify_all_bound(constraints: ConstraintStore, bound_vars: list[Var]):
 
 
 def force_answer(x: Var | list[Var]) -> GoalProto:
-    def _force_answer(state: State, continuation) -> StreamThunk:
+    def _force_answer(state: State) -> StreamThunk:
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
-                return lambda: map_sum(lambda val: eq(x, val), d)(state, continuation)
+                return lambda: map_sum(lambda val: eq(x, val), d)(state)
             case (first, *rest):
-                return lambda: conj(force_answer(first), force_answer(rest))(
-                    state, continuation
-                )
+                return lambda: conj(force_answer(first), force_answer(rest))(state)
             case _:
-                return lambda: succeed()(state, continuation)
+                return lambda: succeed()(state)
 
     return _force_answer
 
@@ -748,7 +730,7 @@ def get_sub_prefix(new_sub: Substitution, old_sub: Substitution) -> Substitution
     return pmap({k: v for k, v in new_sub.items() if k not in old_sub})
 
 
-def conda(*cases) -> Goal:
+def conda(*cases) -> GoalProto:
     _cases = []
     for case in cases:
         if isinstance(case, list | tuple):
@@ -774,14 +756,14 @@ def starfoldr(f, xs, initial):
     return accum
 
 
-def ifte(g1, g2, g3=fail()) -> Goal:
-    def _ifte(state: State) -> Stream:
-        def ifte_loop(stream: Stream) -> Stream:
+def ifte(g1, g2, g3=fail()) -> GoalProto:
+    def _ifte(state: State) -> StreamThunk:
+        def ifte_loop(stream: Stream) -> StreamThunk:
             match stream:
                 case ():
-                    return g3(state)
+                    return lambda: g3(state)
                 case (_, _):
-                    return bind(stream, g2)
+                    return lambda: bind(stream, g2)
                 case _:
                     return lambda: ifte_loop(stream())
 
@@ -790,36 +772,36 @@ def ifte(g1, g2, g3=fail()) -> Goal:
     return Goal(_ifte)
 
 
-def onceo(g: Goal) -> Goal:
-    def _onceo(state: State, continuation):
-        stream = g(state, continuation)
+def onceo(g: GoalProto) -> GoalProto:
+    def _onceo(state: State):
+        stream = g(state)
         while stream:
             match stream:
                 case (s1, _):
-                    return lambda: continuation(unit(s1))
+                    return lambda: unit(s1)
                 case _:
                     stream = stream()
-        return lambda: continuation(mzero)
+        return lambda: mzero
 
     return _onceo
 
 
-def fresh(fp: Callable) -> Goal:
+def fresh(fp: Callable) -> GoalProto:
     n = fp.__code__.co_argcount
 
-    def _fresh(state: State, continuation) -> Stream:
+    def _fresh(state: State) -> Stream:
         i = state.var_count
         vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.set(var_count=i + n), continuation)
+        return fp(*vs)(state.set(var_count=i + n))
 
     return Goal(_fresh)
 
 
-def freshn(n: int, fp: Callable) -> Goal:
-    def _fresh(state: State, continuation) -> Stream:
+def freshn(n: int, fp: Callable) -> GoalProto:
+    def _fresh(state: State) -> Stream:
         i = state.var_count
         vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.set(var_count=i + n), continuation)
+        return fp(*vs)(state.set(var_count=i + n))
 
     return Goal(_fresh)
 
@@ -909,11 +891,11 @@ def reify_sub(v: Value, s: Substitution) -> Substitution:
             return s
 
 
-def call_with_empty_state(g: Goal) -> Stream:
+def call_with_empty_state(g: GoalProto) -> Stream:
     return g(State.empty())
 
 
-def run(n: int, f_fresh_vars: Callable[..., Goal]):
+def run(n: int, f_fresh_vars: Callable[..., GoalProto]):
     n_vars = f_fresh_vars.__code__.co_argcount
     fresh_vars = tuple(Var(i) for i in range(n_vars))
     state = State.empty().set(var_count=n_vars)
@@ -921,10 +903,10 @@ def run(n: int, f_fresh_vars: Callable[..., Goal]):
         f_fresh_vars(*fresh_vars),
         *map(enforce_constraints, fresh_vars),
     )
-    return reify(take(n, goal(state, identity)), *fresh_vars)
+    return reify(take(n, goal(state)), *fresh_vars)
 
 
-def run_all(f_fresh_vars: Callable[..., Goal]):
+def run_all(f_fresh_vars: Callable[..., GoalProto]):
     n_vars = f_fresh_vars.__code__.co_argcount
     fresh_vars = tuple(Var(i) for i in range(n_vars))
     state = State.empty().set(var_count=n_vars)
@@ -932,10 +914,10 @@ def run_all(f_fresh_vars: Callable[..., Goal]):
         f_fresh_vars(*fresh_vars),
         *map(enforce_constraints, fresh_vars),
     )
-    return reify(take_all(goal(state, identity)), *fresh_vars)
+    return reify(take_all(goal(state)), *fresh_vars)
 
 
-def irun(f_fresh_vars: Callable[..., Goal]):
+def irun(f_fresh_vars: Callable[..., GoalProto]):
     n_vars = f_fresh_vars.__code__.co_argcount
     fresh_vars = tuple(Var(i) for i in range(n_vars))
     state = State.empty().set(var_count=n_vars)
@@ -991,11 +973,11 @@ def process_prefix(
     return __PROCESS_PREFIX__(prefix, constraints)
 
 
-def enforce_constraints(x: Var) -> Goal:
+def enforce_constraints(x: Var) -> GoalProto:
     global __ENFORCE_CONSTRAINTS__
     return __ENFORCE_CONSTRAINTS__(x)
 
 
-def reify_constraints(x: Var, s: Substitution) -> Goal:
+def reify_constraints(x: Var, s: Substitution) -> GoalProto:
     global __REIFY_CONSTRAINTS__
     return __REIFY_CONSTRAINTS__(x, s)
