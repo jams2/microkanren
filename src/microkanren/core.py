@@ -130,9 +130,9 @@ def goal_from_constraint(constraint: ConstraintFunction) -> GoalProto:
     def _goal(state: State) -> StreamThunk:
         match constraint(state):
             case None:
-                return lambda: mzero
+                return mzero
             case _ as next_state:
-                return lambda: unit(next_state)
+                return unit(next_state)
 
     return Goal(_goal)
 
@@ -163,7 +163,7 @@ def mplus(s1: Stream, s2: Stream) -> StreamThunk:
 def bind(stream: Stream, g: GoalProto) -> StreamThunk:
     match stream:
         case ():
-            return lambda: mzero
+            return mzero
         case f if callable(f):
             return lambda: bind(f(), g)
         case (s1, s2):
@@ -247,13 +247,13 @@ def fail() -> GoalProto:
 
 def snooze(g: GoalConstructorProto, *args: Value) -> GoalProto:
     def delayed_goal(state) -> StreamThunk:
-        return lambda: g(*args)(state)
+        return g(*args)(state)
 
     return Goal(delayed_goal)
 
 
 def delay(g: GoalProto) -> GoalProto:
-    return Goal(lambda state: lambda: g(state))
+    return Goal(lambda state: g(state))
 
 
 def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
@@ -265,7 +265,7 @@ def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
     def __disj(state: State) -> StreamThunk:
-        return lambda: mplus(g1(state), g2(state))
+        return mplus(g1(state), g2(state))
 
     return Goal(__disj)
 
@@ -279,7 +279,7 @@ def conj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 
 def _conj(g1: GoalProto, g2: GoalProto) -> GoalProto:
     def __conj(state: State) -> StreamThunk:
-        return lambda: bind(g1(state), g2)
+        return bind(g1(state), g2)
 
     return Goal(__conj)
 
@@ -635,7 +635,7 @@ def process_prefix_neq(
 
 
 def enforce_constraints_neq(_: Var) -> GoalProto:
-    return lambda state: lambda: unit(state)
+    return lambda state: unit(state)
 
 
 def reify_constraints_neq(_: Var, __: Substitution) -> ConstraintFunction:
@@ -672,7 +672,7 @@ def enforce_constraints_fd(x: Var) -> GoalProto:
     def _enforce_constraints(state: State) -> StreamThunk:
         bound_vars = state.domains.keys()
         verify_all_bound(state.constraints, bound_vars)
-        return lambda: onceo(force_answer(bound_vars))(state)
+        return onceo(force_answer(bound_vars))(state)
 
     return conj(force_answer(x), Goal(_enforce_constraints))
 
@@ -710,11 +710,11 @@ def force_answer(x: Var | list[Var]) -> GoalProto:
     def _force_answer(state: State) -> StreamThunk:
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
-                return lambda: map_sum(lambda val: eq(x, val), d)(state)
+                return map_sum(lambda val: eq(x, val), d)(state)
             case (first, *rest):
-                return lambda: conj(force_answer(first), force_answer(rest))(state)
+                return conj(force_answer(first), force_answer(rest))(state)
             case _:
-                return lambda: succeed()(state)
+                return succeed()(state)
 
     return _force_answer
 
@@ -758,12 +758,13 @@ def starfoldr(f, xs, initial):
 
 def ifte(g1, g2, g3=fail()) -> GoalProto:
     def _ifte(state: State) -> StreamThunk:
+        # TODO: rewrite iteratively
         def ifte_loop(stream: Stream) -> StreamThunk:
             match stream:
                 case ():
-                    return lambda: g3(state)
+                    return g3(state)
                 case (_, _):
-                    return lambda: bind(stream, g2)
+                    return bind(stream, g2)
                 case _:
                     return lambda: ifte_loop(stream())
 
@@ -778,10 +779,10 @@ def onceo(g: GoalProto) -> GoalProto:
         while stream:
             match stream:
                 case (s1, _):
-                    return lambda: unit(s1)
+                    return unit(s1)
                 case _:
                     stream = stream()
-        return lambda: mzero
+        return mzero
 
     return _onceo
 
@@ -856,12 +857,12 @@ def ireify(states: Generator[State, None, None], *top_level_vars: Var):
 
 def reify_state(state: State, v: Var) -> Value:
     v = walk_all(v, state.sub)
-    r = reify_sub(v, empty_sub())
-    v = walk_all(v, r)
+    reified_sub = reify_sub(v, empty_sub())
+    v = walk_all(v, reified_sub)
     return to_python(v)
     if len(state.constraints) == 0:
         return to_python(v)
-    return to_python(reify_constraints(v, r)(state))
+    return to_python(reify_constraints(v, reified_sub)(state))
 
 
 def walk_all(v: Value, s: Substitution) -> Value:

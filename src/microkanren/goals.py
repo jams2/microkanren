@@ -1,19 +1,17 @@
 from microkanren import (
-    Cons,
     Goal,
     State,
     Stream,
     Var,
     conj,
-    cons,
     disj,
     eq,
     fail,
     fresh,
     ifte,
     neq,
-    nil,
 )
+from microkanren.cons import Cons, cons, nil
 
 
 def appendo(xs: Cons | Var, ys: Cons | Var, zs: Cons | Var) -> Goal:

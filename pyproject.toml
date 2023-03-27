@@ -1,10 +1,10 @@
 [project]
 name = "microkanren"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
     { name="Joshua Munn", email="public@elysee-munn.family" },
 ]
-description = "A Python implementation of microKanren"
+description = "A Python implementation of microKanren extended with constraints"
 readme = "README.md"
 requires-python = ">= 3.10"
 classifiers = [
