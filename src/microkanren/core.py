@@ -710,7 +710,7 @@ def force_answer(x: Var | list[Var]) -> GoalProto:
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
                 return map_sum(lambda val: eq(x, val), d)(state)
-            case (first, *rest):
+            case (first, *rest) | cons(first, rest):
                 return conj(force_answer(first), force_answer(rest))(state)
             case _:
                 return succeed()(state)
@@ -885,7 +885,7 @@ def reify_sub(v: Value, s: Substitution) -> Substitution:
     match v:
         case _ if isinstance(v, Var):
             return extend_substitution(v, ReifiedVar(len(s)), s)
-        case (a, *d):
+        case (a, *d) | cons(a, d):
             return reify_sub(d, reify_sub(a, s))
         case _:
             return s
