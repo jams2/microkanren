@@ -1,3 +1,5 @@
+from fastcons import cons, nil
+
 from microkanren import (
     Goal,
     State,
@@ -11,10 +13,9 @@ from microkanren import (
     ifte,
     neq,
 )
-from microkanren.cons import Cons, cons, nil
 
 
-def appendo(xs: Cons | Var, ys: Cons | Var, zs: Cons | Var) -> Goal:
+def appendo(xs: cons | Var, ys: cons | Var, zs: cons | Var) -> Goal:
     return disj(
         nullo(xs) & eq(ys, zs),
         fresh(

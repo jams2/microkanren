@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from functools import reduce, update_wrapper, wraps
 from typing import Any, Optional, Protocol, TypeAlias, TypeVar
 
+from fastcons import cons, nil
 from pyrsistent import PClass, field, pmap
 from pyrsistent.typing import PMap
 
-from microkanren.cons import Cons, cons, to_python
 from microkanren.utils import identity, partition
 
 NOT_FOUND = object()
@@ -35,7 +35,9 @@ class ReifiedVar:
         return f"_.{self.i}"
 
 
-Value: TypeAlias = Var | int | str | bool | tuple["Value", ...] | list["Value"] | Cons
+Value: TypeAlias = (
+    Var | int | str | bool | tuple["Value", ...] | list["Value"] | cons | nil
+)
 Substitution: TypeAlias = PMap[Var, Value]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
 DomainStore: TypeAlias = PMap[Var, set[int]]
@@ -639,10 +641,7 @@ def enforce_constraints_neq(_: Var) -> GoalProto:
 
 
 def reify_constraints_neq(_: Var, __: Substitution) -> ConstraintFunction:
-    def _reify_constraints_neq(state: State):
-        return state
-
-    return _reify_constraints_neq
+    return identity
 
 
 def process_prefix_fd(
@@ -859,10 +858,10 @@ def reify_state(state: State, v: Var) -> Value:
     v = walk_all(v, state.sub)
     reified_sub = reify_sub(v, empty_sub())
     v = walk_all(v, reified_sub)
-    return to_python(v)
-    if len(state.constraints) == 0:
-        return to_python(v)
-    return to_python(reify_constraints(v, reified_sub)(state))
+    return v
+    # if len(state.constraints) == 0:
+    #     return v
+    # return reify_constraints(v, reified_sub)(state)
 
 
 def walk_all(v: Value, s: Substitution) -> Value:
