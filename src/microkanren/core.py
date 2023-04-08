@@ -925,7 +925,7 @@ def irun(f_fresh_vars: Callable[..., GoalProto]):
         f_fresh_vars(*fresh_vars),
         *map(enforce_constraints, fresh_vars),
     )
-    return ireify(itake(goal(state, identity)), *fresh_vars)
+    return ireify(itake(goal(state)), *fresh_vars)
 
 
 def default_process_prefix(*_):
