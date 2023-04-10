@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use `Hooks` registry class instead of globals for hooks
 - `reify_constraints` hook is called
 - `reify_var` hook is used instead of unconditionally creating `ReifiedVar`
+- Application of `conj` and `disj` to multiple goals is now left-associative to match `|` and `&` operators
 
 ### Added
 - `reify_value` hook

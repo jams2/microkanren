@@ -261,8 +261,7 @@ def delay(g: GoalProto) -> GoalProto:
 def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
     if goals == ():
         return delay(g)
-    g2, *rest = goals
-    return _disj(delay(g), disj(g2, *rest))
+    return reduce(_disj, (delay(goal) for goal in goals), delay(g))
 
 
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
@@ -275,8 +274,7 @@ def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
 def conj(g: GoalProto, *goals: GoalProto) -> GoalProto:
     if goals == ():
         return delay(g)
-    g2, *rest = goals
-    return _conj(delay(g), conj(g2, *rest))
+    return reduce(_conj, (delay(goal) for goal in goals), delay(g))
 
 
 def _conj(g1: GoalProto, g2: GoalProto) -> GoalProto:
