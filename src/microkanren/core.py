@@ -43,7 +43,6 @@ NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
 DomainStore: TypeAlias = PMap[Var, set[int]]
 ConstraintFunction: TypeAlias = Callable[["State"], Optional["State"]]
 ConstraintStore: TypeAlias = list["Constraint"]
-StreamThunk: TypeAlias = Callable[[], "Stream"]
 
 
 def empty_sub() -> Substitution:
@@ -103,7 +102,7 @@ Stream: TypeAlias = tuple[()] | Callable[[], "Stream"] | tuple[State, "Stream"]
 
 
 class GoalProto(Protocol):
-    def __call__(self, state: State) -> StreamThunk:
+    def __call__(self, state: State) -> Stream:
         ...
 
 
@@ -117,7 +116,7 @@ class Goal:
         update_wrapper(self, goal)
         self.goal = goal
 
-    def __call__(self, state: State) -> StreamThunk:
+    def __call__(self, state: State) -> Stream:
         return lambda: self.goal(state)
 
     def __or__(self, other):
@@ -129,7 +128,7 @@ class Goal:
 
 
 def goal_from_constraint(constraint: ConstraintFunction) -> GoalProto:
-    def _goal(state: State) -> StreamThunk:
+    def _goal(state: State) -> Stream:
         match constraint(state):
             case None:
                 return mzero
@@ -150,7 +149,7 @@ def unit(state: State) -> Stream:
     return (state, mzero)
 
 
-def mplus(s1: Stream, s2: Stream) -> StreamThunk:
+def mplus(s1: Stream, s2: Stream) -> Stream:
     match s1:
         case ():
             return lambda: s2
@@ -162,7 +161,7 @@ def mplus(s1: Stream, s2: Stream) -> StreamThunk:
             raise InvalidStream
 
 
-def bind(stream: Stream, g: GoalProto) -> StreamThunk:
+def bind(stream: Stream, g: GoalProto) -> Stream:
     match stream:
         case ():
             return mzero
@@ -248,7 +247,7 @@ def fail() -> GoalProto:
 
 
 def snooze(g: GoalConstructorProto, *args: Value) -> GoalProto:
-    def delayed_goal(state) -> StreamThunk:
+    def delayed_goal(state) -> Stream:
         return g(*args)(state)
 
     return Goal(delayed_goal)
@@ -265,7 +264,7 @@ def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 
 
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
-    def __disj(state: State) -> StreamThunk:
+    def __disj(state: State) -> Stream:
         return mplus(g1(state), g2(state))
 
     return Goal(__disj)
@@ -278,7 +277,7 @@ def conj(g: GoalProto, *goals: GoalProto) -> GoalProto:
 
 
 def _conj(g1: GoalProto, g2: GoalProto) -> GoalProto:
-    def __conj(state: State) -> StreamThunk:
+    def __conj(state: State) -> Stream:
         return bind(g1(state), g2)
 
     return Goal(__conj)
@@ -668,7 +667,7 @@ def process_prefix_fd(
 
 
 def enforce_constraints_fd(x: Var) -> GoalProto:
-    def _enforce_constraints(state: State) -> StreamThunk:
+    def _enforce_constraints(state: State) -> Stream:
         bound_vars = state.domains.keys()
         verify_all_bound(state.constraints, bound_vars)
         return onceo(force_answer(bound_vars))(state)
@@ -706,7 +705,7 @@ def verify_all_bound(constraints: ConstraintStore, bound_vars: list[Var]):
 
 
 def force_answer(x: Var | list[Var]) -> GoalProto:
-    def _force_answer(state: State) -> StreamThunk:
+    def _force_answer(state: State) -> Stream:
         match walk(x, state.sub):
             case Var(_) as var if (d := state.get_domain(var)) is not None:
                 return map_sum(lambda val: eq(x, val), d)(state)
@@ -756,9 +755,9 @@ def starfoldr(f, xs, initial):
 
 
 def ifte(g1, g2, g3=fail()) -> GoalProto:
-    def _ifte(state: State) -> StreamThunk:
+    def _ifte(state: State) -> Stream:
         # TODO: rewrite iteratively
-        def ifte_loop(stream: Stream) -> StreamThunk:
+        def ifte_loop(stream: Stream) -> Stream:
             match stream:
                 case ():
                     return g3(state)

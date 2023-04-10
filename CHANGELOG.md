@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `reify_value` hook
+- Basic usage info to README.md
+
+### Removed
+- Unused `StreamThunk` type
 
 ## [0.2.2] - 2023-04-08
 
