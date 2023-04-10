@@ -11,6 +11,7 @@ Due to the differences between Python and the reference implementation languages
   + [The result type and multiple top-level variables](#the-result-type-and-multiple-top-level-variables)
   + [Defining goal constructors](#defining-goal-constructors)
     - [Recursive goal constructors and `snooze` (Zzz)](#recursive-goal-constructors-and--snooze---zzz-)
+* [Developing microkanren](#developing-microkanren)
 
 ## Installation
 
@@ -144,6 +145,22 @@ We provide `snooze` to delay the construction of a goal until it is needed. Usin
 '🍕'
 >>> next(rs)
 '🍕'
+```
+
+## Developing microkanren
+
+`microkanren` currently requires Python 3.11.
+
+1. `git clone git@github.com:jams2/microkanren.git`
+2. `pip install -e .[dev,testing]`
+
+Run the tests with `pytest`.
+
+Format code with `black` and `ruff`:
+
+``` bash
+black .
+ruff check --fix src tests
 ```
 
 ---

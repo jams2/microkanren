@@ -1,6 +1,6 @@
 [project]
 name = "microkanren"
-version = "0.2.2"
+version = "0.3.0"
 authors = [
     { name="Joshua Munn", email="public@elysee-munn.family" },
 ]
@@ -9,6 +9,7 @@ readme = "README.md"
 requires-python = "~=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Development Status :: 2 - Pre-Alpha",
@@ -17,6 +18,7 @@ dependencies = [
     "pyrsistent ~= 0.19",
     "fastcons ~= 0.2.0",
 ]
+license = {file = "LICENSE"}
 
 [project.urls]
 "Homepage" = "https://github.com/jams2/microkanren"
@@ -40,6 +42,7 @@ minversion = 7.0
 [tool.ruff]
 line-length = 88
 src = ["src", "tests"]
+target-version = "py311"
 select = [
   "E",   # pycodestyle
   "F",   # pyflakes
@@ -50,7 +53,10 @@ select = [
   "T10", # flake8-debugger
   "C4",  # flake8-comprehensions
 ]
+unfixable = [
+  "ARG", # unused arguments
+]
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 stubPath = ""
