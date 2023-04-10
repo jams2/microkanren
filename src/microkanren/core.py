@@ -297,7 +297,9 @@ def eq(u: Value, v: Value) -> GoalProto:
             return state
         else:
             prefix = get_sub_prefix(new_sub, state.sub)
-            return process_prefix(prefix, state.constraints)(state.set(sub=new_sub))
+            return Hooks.process_prefix(prefix, state.constraints)(
+                state.set(sub=new_sub)
+            )
 
     return goal_from_constraint(_eqc)
 
@@ -858,10 +860,7 @@ def reify_state(state: State, v: Var) -> Value:
     v = walk_all(v, state.sub)
     reified_sub = reify_sub(v, empty_sub())
     v = walk_all(v, reified_sub)
-    return v
-    # if len(state.constraints) == 0:
-    #     return v
-    # return reify_constraints(v, reified_sub)(state)
+    return Hooks.reify_value(Hooks.reify_constraints(v, reified_sub, state))
 
 
 def walk_all(v: Value, s: Substitution) -> Value:
@@ -884,7 +883,7 @@ def reify_sub(v: Value, s: Substitution) -> Substitution:
     v = walk(v, s)
     match v:
         case _ if isinstance(v, Var):
-            return extend_substitution(v, ReifiedVar(len(s)), s)
+            return extend_substitution(v, Hooks.reify_var(v, s), s)
         case (a, *d) | cons(a, d):
             return reify_sub(d, reify_sub(a, s))
         case _:
@@ -901,7 +900,7 @@ def run(n: int, f_fresh_vars: Callable[..., GoalProto]):
     state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
-        *map(enforce_constraints, fresh_vars),
+        *map(Hooks.enforce_constraints, fresh_vars),
     )
     return reify(take(n, goal(state)), *fresh_vars)
 
@@ -912,7 +911,7 @@ def run_all(f_fresh_vars: Callable[..., GoalProto]):
     state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
-        *map(enforce_constraints, fresh_vars),
+        *map(Hooks.enforce_constraints, fresh_vars),
     )
     return reify(take_all(goal(state)), *fresh_vars)
 
@@ -923,7 +922,7 @@ def irun(f_fresh_vars: Callable[..., GoalProto]):
     state = State.empty().set(var_count=n_vars)
     goal = conj(
         f_fresh_vars(*fresh_vars),
-        *map(enforce_constraints, fresh_vars),
+        *map(Hooks.enforce_constraints, fresh_vars),
     )
     return ireify(itake(goal(state)), *fresh_vars)
 
@@ -936,48 +935,42 @@ def default_enforce_constraints(*_):
     return succeed()
 
 
-def default_reify_constraints(*_):
-    return succeed()
+def default_reify_constraints(value, *_):
+    return value
 
 
-__PROCESS_PREFIX__: Callable[
-    [Substitution, ConstraintStore],
-    ConstraintFunction,
-] = default_process_prefix
-__ENFORCE_CONSTRAINTS__: Callable[[Var], GoalProto] = default_enforce_constraints
-__REIFY_CONSTRAINTS__: Callable[
-    [Var, Substitution],
-    GoalProto,
-] = default_reify_constraints
+def default_reify_var(_, substitution):
+    return ReifiedVar(len(substitution))
 
 
-def set_process_prefix(constraint_function):
-    global __PROCESS_PREFIX__
-    __PROCESS_PREFIX__ = constraint_function
+def default_reify_value(value):
+    return value
 
 
-def set_enforce_constraints(goal):
-    global __ENFORCE_CONSTRAINTS__
-    __ENFORCE_CONSTRAINTS__ = goal
+class HooksMeta(type):
+    def _set_hook(cls, name):
+        def update_hooks(hook_function):
+            if not hasattr(cls, name):
+                raise AttributeError(
+                    f"Cannot set unknown hook '{name}' on registry '{cls.__name__}'"
+                )
+            setattr(cls, name, hook_function)
+
+        return update_hooks
+
+    def __getattribute__(cls, attr):
+        if attr.startswith("set_"):
+            return cls._set_hook(attr[4:])
+        return super().__getattribute__(attr)
 
 
-def set_reify_constraints(goal):
-    global __REIFY_CONSTRAINTS__
-    __REIFY_CONSTRAINTS__ = goal
-
-
-def process_prefix(
-    prefix: Substitution, constraints: ConstraintStore
-) -> ConstraintFunction:
-    global __PROCESS_PREFIX__
-    return __PROCESS_PREFIX__(prefix, constraints)
-
-
-def enforce_constraints(x: Var) -> GoalProto:
-    global __ENFORCE_CONSTRAINTS__
-    return __ENFORCE_CONSTRAINTS__(x)
-
-
-def reify_constraints(x: Var, s: Substitution) -> GoalProto:
-    global __REIFY_CONSTRAINTS__
-    return __REIFY_CONSTRAINTS__(x, s)
+class Hooks(metaclass=HooksMeta):
+    process_prefix: Callable[
+        [Substitution, ConstraintStore], ConstraintFunction
+    ] = default_process_prefix
+    enforce_constraints: Callable[[Var], GoalProto] = default_enforce_constraints
+    reify_constraints: Callable[
+        [Value, Substitution, State], Any
+    ] = default_reify_constraints
+    reify_var: Callable[[Var, Substitution], Any] = default_reify_var
+    reify_value: Callable[[Any], Any] = default_reify_value

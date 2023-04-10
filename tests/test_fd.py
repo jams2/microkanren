@@ -4,6 +4,7 @@ from math import sqrt
 import pytest
 
 from microkanren import (
+    Hooks,
     alldifffd,
     compose_constraints,
     conj,
@@ -25,8 +26,6 @@ from microkanren import (
     process_prefix_neq,
     run,
     run_all,
-    set_enforce_constraints,
-    set_process_prefix,
 )
 
 
@@ -38,8 +37,8 @@ def setup_process_prefix():
             process_prefix_fd(prefix, constraints),
         )
 
-    yield set_process_prefix(process_prefix)
-    set_process_prefix(default_process_prefix)
+    yield Hooks.set_process_prefix(process_prefix)
+    Hooks.set_process_prefix(default_process_prefix)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -50,8 +49,8 @@ def setup_enforce_constraints():
             enforce_constraints_fd(var),
         )
 
-    yield set_enforce_constraints(enforce_constraints)
-    set_enforce_constraints(default_enforce_constraints)
+    yield Hooks.set_enforce_constraints(enforce_constraints)
+    Hooks.set_enforce_constraints(default_enforce_constraints)
 
 
 class TestFdConstraints:
