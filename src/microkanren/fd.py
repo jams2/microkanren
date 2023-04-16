@@ -298,7 +298,7 @@ def process_prefix_fd(
     (x, v), *_ = prefix.items()
     t = compose_constraints(
         run_constraints([x], constraints),
-        process_prefix_fd(prefix.remove(x), constraints),
+        process_prefix_fd(prefix.delete(x), constraints),
     )
 
     def _process_prefix_fd(state: State):

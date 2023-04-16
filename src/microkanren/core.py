@@ -10,12 +10,12 @@ efficient access
 
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
-from functools import reduce, update_wrapper, wraps
+from functools import reduce, wraps
 from typing import Any, Optional, Protocol, TypeAlias, TypeVar
 
+import immutables
 from fastcons import cons, nil
-from pyrsistent import PClass, field, pmap
-from pyrsistent.typing import PMap
+from pyrsistent import PClass, field
 
 from microkanren.utils import identity
 
@@ -38,19 +38,19 @@ class ReifiedVar:
 Value: TypeAlias = (
     Var | int | str | bool | tuple["Value", ...] | list["Value"] | cons | nil
 )
-Substitution: TypeAlias = PMap[Var, Value]
+Substitution: TypeAlias = immutables.Map[Var, Value]
 NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
-DomainStore: TypeAlias = PMap[Var, set[int]]
+DomainStore: TypeAlias = immutables.Map[Var, set[int]]
 ConstraintFunction: TypeAlias = Callable[["State"], Optional["State"]]
 ConstraintStore: TypeAlias = list["Constraint"]
 
 
 def empty_sub() -> Substitution:
-    return pmap()
+    return immutables.Map()
 
 
 def empty_domain_store() -> DomainStore:
-    return pmap()
+    return immutables.Map()
 
 
 def empty_constraint_store() -> ConstraintStore:
@@ -105,7 +105,6 @@ class GoalConstructorProto(Protocol):
 
 class Goal:
     def __init__(self, goal: GoalProto):
-        update_wrapper(self, goal)
         self.goal = goal
 
     def __call__(self, state: State) -> Stream:
@@ -251,8 +250,8 @@ def delay(g: GoalProto) -> GoalProto:
 
 def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
     if goals == ():
-        return delay(g)
-    return reduce(_disj, (delay(goal) for goal in goals), delay(g))
+        return g
+    return reduce(_disj, (goal for goal in goals), g)
 
 
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
@@ -264,8 +263,8 @@ def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
 
 def conj(g: GoalProto, *goals: GoalProto) -> GoalProto:
     if goals == ():
-        return delay(g)
-    return reduce(_conj, (delay(goal) for goal in goals), delay(g))
+        return g
+    return reduce(_conj, (goal for goal in goals), g)
 
 
 def _conj(g1: GoalProto, g2: GoalProto) -> GoalProto:
@@ -440,7 +439,12 @@ def map_sum(goal_constructor: Callable[[A], GoalProto], xs: list[A]) -> GoalProt
 
 
 def get_sub_prefix(new_sub: Substitution, old_sub: Substitution) -> Substitution:
-    return pmap({k: v for k, v in new_sub.items() if k not in old_sub})
+    mutation = new_sub.mutate()
+    for k in new_sub:
+        if k in old_sub:
+            del mutation[k]
+    return mutation.finish()
+    return immutables.Map({k: v for k, v in new_sub.items() if k not in old_sub})
 
 
 def fresh(fp: Callable) -> GoalProto:
