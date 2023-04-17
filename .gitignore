@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -132,4 +131,7 @@ prof
 
 profiling.py
 sudoku.py
-.ccls-cache
+
+.ccls*
+.gdb_history
+.clang-format
