@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdlib.h>
 #include "Python.h"
 
@@ -13,14 +14,10 @@ pull(PyObject *stream)
 }
 
 static PyObject *
-mkcore_take(PyObject *module, PyObject *args)
+_take(long n, PyObject *stream)
 {
-    long n = 0;
-    PyObject *stream = NULL;
-    if (!PyArg_ParseTuple(args, "lO:take", &n, &stream))
-        return NULL;
-
     int capacity = 32;
+    PyObject *py_results = NULL;
     PyObject **results = realloc(NULL, capacity * sizeof(PyObject *));
     if (results == NULL) {
         PyErr_Format(PyExc_OSError, "mkcore_take: realloc failed with size %d", capacity);
@@ -37,7 +34,7 @@ mkcore_take(PyObject *module, PyObject *args)
     for (int i = 0; i < n; i++) {
         stream = pull(stream);
         if (!stream)
-            goto error;
+            goto end;
         if (Py_Is(stream, empty))
             break;
         head = PyTuple_GET_ITEM(stream, 0);
@@ -49,7 +46,7 @@ mkcore_take(PyObject *module, PyObject *args)
             if (tmp == NULL) {
                 PyErr_Format(PyExc_OSError, "mkcore_take: realloc failed with size %d",
                              capacity);
-                goto error;
+                goto end;
             }
             results = tmp;
             next = results + len;
@@ -60,9 +57,9 @@ mkcore_take(PyObject *module, PyObject *args)
     }
 
     len = next - results;
-    PyObject *py_results = PyList_New(len);
+    py_results = PyList_New(len);
     if (!py_results)
-        goto error;
+        goto end;
 
     for (int i = 0; i < len; i++) {
         next = results + i;
@@ -70,17 +67,38 @@ mkcore_take(PyObject *module, PyObject *args)
         PyList_SET_ITEM(py_results, i, *next);
     }
 
-    return py_results;
-error:
+end:
     free(results);
     Py_DECREF(empty);
-    return NULL;
+    return py_results;
 }
 
-PyDoc_STRVAR(mkcore_take_doc, "");
+PyDoc_STRVAR(mkcore_take_doc, "Take n results from stream");
+
+static PyObject *
+mkcore_take(PyObject *module, PyObject *args)
+{
+    long n = 0;
+    PyObject *stream = NULL;
+    if (!PyArg_ParseTuple(args, "lO:take", &n, &stream))
+        return NULL;
+    return _take(n, stream);
+}
+
+PyDoc_STRVAR(mkcore_take_all_doc, "Take all results from stream");
+
+static PyObject *
+mkcore_take_all(PyObject *module, PyObject *args)
+{
+    PyObject *stream = NULL;
+    if (!PyArg_ParseTuple(args, "O:take_all", &stream))
+        return NULL;
+    return _take(LONG_MAX, stream);
+}
 
 static PyMethodDef mkcoremodule_methods[] = {
     {"take", mkcore_take, METH_VARARGS, mkcore_take_doc},
+    {"take_all", mkcore_take_all, METH_VARARGS, mkcore_take_all_doc},
     {NULL, NULL},
 };
 

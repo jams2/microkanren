@@ -15,6 +15,7 @@ from typing import Any, Optional, Protocol, TypeAlias, TypeVar
 
 import immutables
 from fastcons import cons, nil
+from mkcore import take, take_all
 from pyrsistent import PClass, field
 
 from microkanren.utils import identity
@@ -489,26 +490,6 @@ def pull(s: Stream):
     while callable(s):
         s = s()
     return s
-
-
-def take_all(s: Stream) -> list[State]:
-    result = []
-    rest = s
-    while (s := pull(rest)) != ():
-        first, rest = s
-        result.append(first)
-    return result
-
-
-def take(n, s: Stream) -> list[State]:
-    i = 0
-    result = []
-    rest = s
-    while i < n and (s := pull(rest)) != ():
-        first, rest = s
-        result.append(first)
-        i += 1
-    return result
 
 
 def itake(s: Stream) -> list[State]:
