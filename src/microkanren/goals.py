@@ -1,18 +1,79 @@
 from fastcons import cons, nil
 
-from microkanren import (
+from microkanren.core import (
     Goal,
+    GoalProto,
     State,
     Stream,
     Var,
+    bind,
     conj,
     disj,
     eq,
     fail,
     fresh,
-    ifte,
+    mzero,
     neq,
+    succeed,
+    unit,
 )
+
+
+def conda(*cases) -> GoalProto:
+    _cases = []
+    for case in cases:
+        if isinstance(case, list | tuple):
+            _cases.append((case[0], succeed) if len(case) < 2 else case)
+        else:
+            _cases.append((case, succeed()))
+
+    def _conda(state: State) -> Stream:
+        return starfoldr(ifte, _cases, fail())(state)
+
+    return Goal(_conda)
+
+
+def starfoldr(f, xs, initial):
+    sentinel = object()
+    accum = sentinel
+    for args in reversed(xs):
+        if accum is sentinel:
+            _args = (*args, initial)
+        else:
+            _args = (*args, accum)
+        accum = f(*_args)
+    return accum
+
+
+def ifte(g1, g2, g3=fail()) -> GoalProto:
+    def _ifte(state: State) -> Stream:
+        # TODO: rewrite iteratively
+        def ifte_loop(stream: Stream) -> Stream:
+            match stream:
+                case ():
+                    return g3(state)
+                case (_, _):
+                    return bind(stream, g2)
+                case _:
+                    return lambda: ifte_loop(stream())
+
+        return ifte_loop(g1(state))
+
+    return Goal(_ifte)
+
+
+def onceo(g: GoalProto) -> GoalProto:
+    def _onceo(state: State):
+        stream = g(state)
+        while stream:
+            match stream:
+                case (s1, _):
+                    return unit(s1)
+                case _:
+                    stream = stream()
+        return mzero
+
+    return _onceo
 
 
 def appendo(xs: cons | Var, ys: cons | Var, zs: cons | Var) -> Goal:

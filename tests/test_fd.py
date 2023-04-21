@@ -5,27 +5,29 @@ import pytest
 
 from microkanren import (
     Hooks,
-    alldifffd,
     compose_constraints,
     conj,
     default_enforce_constraints,
     default_process_prefix,
-    domfd,
-    enforce_constraints_fd,
     enforce_constraints_neq,
     eq,
     freshn,
+    neq,
+    process_prefix_neq,
+    run,
+    run_all,
+)
+from microkanren.fd import (
+    alldifffd,
+    domfd,
+    enforce_constraints_fd,
     infd,
     ltefd,
     make_domain,
     mkrange,
-    neq,
     neqfd,
     plusfd,
     process_prefix_fd,
-    process_prefix_neq,
-    run,
-    run_all,
 )
 
 
