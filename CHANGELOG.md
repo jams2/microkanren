@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Changed
+- Moved finite domain goal constructors into fd.py
+
+## [0.3.0] - 2023-04-10
+
+### Changed
 - Use `Hooks` registry class instead of globals for hooks
 - `reify_constraints` hook is called
 - `reify_var` hook is used instead of unconditionally creating `ReifiedVar`
