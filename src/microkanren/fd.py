@@ -71,7 +71,7 @@ def ltfdc(u: Value, v: Value) -> ConstraintFunction:
 
         next_state = state.set(
             constraints=extend_constraint_store(
-                Constraint(ltfdc, [_u, _v]), state.constraints
+                Constraint(ltfdc, (_u, _v)), state.constraints
             )
         )
         if not dom_u or not dom_v:
@@ -100,7 +100,7 @@ def ltefdc(u: Value, v: Value) -> ConstraintFunction:
 
         next_state = state.set(
             constraints=extend_constraint_store(
-                Constraint(ltefdc, [_u, _v]), state.constraints
+                Constraint(ltefdc, (_u, _v)), state.constraints
             )
         )
         if not dom_u or not dom_v:
@@ -131,7 +131,7 @@ def plusfdc(u: Value, v: Value, w: Value) -> ConstraintFunction:
 
         next_state = state.set(
             constraints=extend_constraint_store(
-                Constraint(plusfdc, [_u, _v, _w]), state.constraints
+                Constraint(plusfdc, (_u, _v, _w)), state.constraints
             )
         )
         if not all((dom_u, dom_v, dom_w)):
@@ -167,7 +167,7 @@ def neqfdc(u: Value, v: Value) -> ConstraintFunction:
         if dom_u is None or dom_v is None:
             return state.set(
                 constraints=extend_constraint_store(
-                    Constraint(neqfdc, [_u, _v]), state.constraints
+                    Constraint(neqfdc, (_u, _v)), state.constraints
                 )
             )
         elif len(dom_u) == 1 and len(dom_v) == 1 and dom_u == dom_v:
@@ -177,7 +177,7 @@ def neqfdc(u: Value, v: Value) -> ConstraintFunction:
 
         next_state = state.set(
             constraints=extend_constraint_store(
-                Constraint(neqfdc, [_u, _v]), state.constraints
+                Constraint(neqfdc, (_u, _v)), state.constraints
             )
         )
         if len(dom_u) == 1:
@@ -197,8 +197,8 @@ def alldifffd(*vs: Value) -> GoalProto:
 def alldifffdc(*vs: Value) -> ConstraintFunction:
     def _alldifffdc(state: State) -> State | None:
         unresolved, values = partition(lambda v: isinstance(v, Var), vs)
-        unresolved = list(unresolved)
-        values = list(values)
+        unresolved = tuple(unresolved)
+        values = tuple(values)
         values_domain = make_domain(*values)
         if len(values) == len(values_domain):
             return alldifffdc_resolve(unresolved, values_domain)(state)
@@ -207,10 +207,12 @@ def alldifffdc(*vs: Value) -> ConstraintFunction:
     return _alldifffdc
 
 
-def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> ConstraintFunction:
+def alldifffdc_resolve(
+    unresolved: tuple[Var], values: set[Value]
+) -> ConstraintFunction:
     def _alldifffdc_resolve(state: State) -> State | None:
         nonlocal values
-        values = values.copy()
+        values = set(values)
         remains_unresolved = []
         for var in unresolved:
             v = walk(var, state.sub)
@@ -223,7 +225,9 @@ def alldifffdc_resolve(unresolved: list[Var], values: set[Value]) -> ConstraintF
 
         next_state = state.set(
             constraints=extend_constraint_store(
-                Constraint(alldifffdc_resolve, [remains_unresolved, values]),
+                Constraint(
+                    alldifffdc_resolve, (tuple(remains_unresolved), tuple(values))
+                ),
                 state.constraints,
             )
         )

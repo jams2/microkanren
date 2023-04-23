@@ -114,7 +114,7 @@ class TestFdConstraints:
         """
         If neq(x, n), then n cannot be in the domain of x.
         """
-        result = run_all(lambda x: domfd(x, make_domain(1, 2, 3)) & neq((x, 2)))
+        result = run_all(lambda x: domfd(x, make_domain(1, 2, 3)) & neq(x, 2))
         assert set(result) == {1, 3}
 
     def test_neq_with_ltefd(self):
@@ -125,7 +125,7 @@ class TestFdConstraints:
             lambda x, y: domfd(x, make_domain(1, 2, 3))
             & domfd(y, make_domain(1, 2))
             & ltefd(x, y)
-            & neq((x, 1))
+            & neq(x, 1)
         )
         assert result == [(2, 2)]
 

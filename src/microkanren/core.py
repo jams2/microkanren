@@ -81,10 +81,10 @@ class ConstraintProto(Protocol):
         ...
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class Constraint:
     func: ConstraintProto
-    operands: list[Value]
+    operands: tuple[Value]
 
     def __call__(self, state: State) -> State | None:
         return self.func(*self.operands)(state)
@@ -444,7 +444,6 @@ def get_sub_prefix(new_sub: Substitution, old_sub: Substitution) -> Substitution
         if k in old_sub:
             del mutation[k]
     return mutation.finish()
-    return immutables.Map({k: v for k, v in new_sub.items() if k not in old_sub})
 
 
 def fresh(fp: Callable) -> GoalProto:
