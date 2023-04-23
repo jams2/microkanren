@@ -23,6 +23,7 @@ from microkanren.fd import (
     enforce_constraints_fd,
     infd,
     ltefd,
+    ltfd,
     make_domain,
     mkrange,
     neqfd,
@@ -92,6 +93,22 @@ class TestFdConstraints:
         assert {x[0] for x in result} == expected_x
         for x, y in result:
             assert x <= y
+
+    @pytest.mark.parametrize(
+        ("a", "b", "expected_x"),
+        [
+            (make_domain(1, 2, 3, 4), make_domain(2, 3), make_domain(1, 2)),
+            (make_domain(1, 2, 3), make_domain(4, 5), make_domain(1, 2, 3)),
+            (make_domain(4, 5), make_domain(1, 2), make_domain()),
+            (make_domain(3, 4), make_domain(2, 3, 4, 5), make_domain(3, 4)),
+            (make_domain(1, 2, 3, 4), make_domain(1, 2, 3, 4), make_domain(1, 2, 3)),
+        ],
+    )
+    def test_ltfd(self, a, b, expected_x):
+        result = run_all(lambda x, y: domfd(x, a) & domfd(y, b) & ltfd(x, y))
+        assert {x[0] for x in result} == expected_x
+        for x, y in result:
+            assert x < y
 
     def test_neq_with_domfd(self):
         """

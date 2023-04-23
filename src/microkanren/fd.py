@@ -58,6 +58,35 @@ def infd(values: tuple[Value], domain, /) -> GoalProto:
     return goal_from_constraint(infdc)
 
 
+def ltfd(u: Value, v: Value) -> GoalProto:
+    return goal_from_constraint(ltfdc(u, v))
+
+
+def ltfdc(u: Value, v: Value) -> ConstraintFunction:
+    def _ltfdc(state: State) -> State | None:
+        _u = walk(u, state.sub)
+        _v = walk(v, state.sub)
+        dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
+        dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
+
+        next_state = state.set(
+            constraints=extend_constraint_store(
+                Constraint(ltfdc, [_u, _v]), state.constraints
+            )
+        )
+        if not dom_u or not dom_v:
+            return next_state
+
+        max_v = max(dom_v)
+        min_u = min(dom_u)
+        return compose_constraints(
+            process_domain(_u, make_domain(*(i for i in dom_u if i < max_v))),
+            process_domain(_v, make_domain(*(i for i in dom_v if i > min_u))),
+        )(next_state)
+
+    return _ltfdc
+
+
 def ltefd(u: Value, v: Value) -> GoalProto:
     return goal_from_constraint(ltefdc(u, v))
 
@@ -68,19 +97,21 @@ def ltefdc(u: Value, v: Value) -> ConstraintFunction:
         _v = walk(v, state.sub)
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
+
         next_state = state.set(
             constraints=extend_constraint_store(
                 Constraint(ltefdc, [_u, _v]), state.constraints
             )
         )
-        if dom_u and dom_v:
-            max_v = max(dom_v)
-            min_u = min(dom_u)
-            return compose_constraints(
-                process_domain(_u, make_domain(*(i for i in dom_u if i <= max_v))),
-                process_domain(_v, make_domain(*(i for i in dom_v if i >= min_u))),
-            )(next_state)
-        return state
+        if not dom_u or not dom_v:
+            return next_state
+
+        max_v = max(dom_v)
+        min_u = min(dom_u)
+        return compose_constraints(
+            process_domain(_u, make_domain(*(i for i in dom_u if i <= max_v))),
+            process_domain(_v, make_domain(*(i for i in dom_v if i >= min_u))),
+        )(next_state)
 
     return _ltefdc
 
@@ -97,26 +128,28 @@ def plusfdc(u: Value, v: Value, w: Value) -> ConstraintFunction:
         dom_u = state.get_domain(_u) if isinstance(_u, Var) else make_domain(_u)
         dom_v = state.get_domain(_v) if isinstance(_v, Var) else make_domain(_v)
         dom_w = state.get_domain(_w) if isinstance(_w, Var) else make_domain(_w)
+
         next_state = state.set(
             constraints=extend_constraint_store(
                 Constraint(plusfdc, [_u, _v, _w]), state.constraints
             )
         )
-        if dom_u and dom_v and dom_w:
-            min_u = min(dom_u)
-            max_u = max(dom_u)
-            min_v = min(dom_v)
-            max_v = max(dom_v)
-            min_w = min(dom_w)
-            max_w = max(dom_w)
-            return compose_constraints(
-                process_domain(_w, mkrange(min_u + min_v, max_u + max_v)),
-                compose_constraints(
-                    process_domain(_u, mkrange(min_w - max_v, max_w - min_v)),
-                    process_domain(_v, mkrange(min_w - max_u, max_w - min_u)),
-                ),
-            )(next_state)
-        return state
+        if not all((dom_u, dom_v, dom_w)):
+            return next_state
+
+        min_u = min(dom_u)
+        max_u = max(dom_u)
+        min_v = min(dom_v)
+        max_v = max(dom_v)
+        min_w = min(dom_w)
+        max_w = max(dom_w)
+        return compose_constraints(
+            process_domain(_w, mkrange(min_u + min_v, max_u + max_v)),
+            compose_constraints(
+                process_domain(_u, mkrange(min_w - max_v, max_w - min_v)),
+                process_domain(_v, mkrange(min_w - max_u, max_w - min_u)),
+            ),
+        )(next_state)
 
     return _plusfdc
 

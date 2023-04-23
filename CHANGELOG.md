@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- `ltfd` goal
+
 ### Changed
 - Moved finite domain goal constructors into fd.py
+- Exit early from FD goals if any var has no domain
+- When exiting early from FD goals, make sure a constraint is added to the store
 
 ## [0.3.0] - 2023-04-10
 
