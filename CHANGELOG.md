@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved finite domain goal constructors into fd.py
 - Exit early from FD goals if any var has no domain
 - When exiting early from FD goals, make sure a constraint is added to the store
+- Use `immutables` map instead of pyrsistent map (better performance)
+- Change `neq` signature from `neq((a, b), *rest_pairs)` to `neq(a, b, /, *rest)`
+- Make `Constraint` frozen so it's hashable
+- Store `Constraint` operands as tuples rather than lists/sets
 
 ## [0.3.0] - 2023-04-10
 
