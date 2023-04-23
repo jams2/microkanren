@@ -307,6 +307,26 @@ def unify_all(
             return None
 
 
+def pairs(xs):
+    _xs = iter(xs)
+    while True:
+        try:
+            a = next(_xs)
+        except StopIteration:
+            break
+        try:
+            b = next(_xs)
+            yield (a, b)
+        except StopIteration:
+            raise ValueError("got sequence with uneven length")
+
+
+def unpairs(xs):
+    for a, b in xs:
+        yield a
+        yield b
+
+
 def maybe_unify(
     pair: tuple[Value, Value], sub: Substitution | None
 ) -> Substitution | None:
@@ -324,23 +344,22 @@ def flip(f):
     return _flipped
 
 
-def neq(*pairs) -> GoalProto:
-    return goal_from_constraint(neqc(pairs))
+def neq(u, v, /, *rest) -> GoalProto:
+    return goal_from_constraint(neqc(u, v, *rest))
 
 
-def neqc(pairs: tuple[tuple[Value, Value], ...]) -> ConstraintFunction:
+def neqc(u, v, *rest) -> ConstraintFunction:
     def _neqc(state: State) -> State | None:
-        (u, v), *rest = pairs
-        new_sub = reduce(flip(maybe_unify), rest, unify(u, v, state.sub))
+        new_sub = reduce(flip(maybe_unify), pairs(rest), unify(u, v, state.sub))
         if new_sub is None:
             return state
         elif new_sub == state.sub:
             return None
         prefix = get_sub_prefix(new_sub, state.sub)
-        remaining_pairs = list(prefix.items())
+        remaining_pairs = tuple(prefix.items())
         return state.set(
             constraints=extend_constraint_store(
-                Constraint(neqc, [remaining_pairs]), state.constraints
+                Constraint(neqc, tuple(unpairs(remaining_pairs))), state.constraints
             )
         )
 
