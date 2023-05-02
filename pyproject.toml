@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "pyrsistent ~= 0.19",
-    "fastcons ~= 0.3.0",
+    "fastcons ~= 0.4.0",
     "immutables ~= 0.19",
 ]
 license = {file = "LICENSE"}
