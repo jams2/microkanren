@@ -8,6 +8,7 @@ typedef struct {
     PyTypeObject *eq_goal_type;
     PyTypeObject *disj_goal_type;
     PyTypeObject *conj_goal_type;
+    PyTypeObject *fresh_goal_type;
 } mkcore_state;
 
 typedef struct {
@@ -26,5 +27,9 @@ GoalObject_clear(PyObject *);
 
 #define Goal_LHS(obj) ((GoalObject *)obj)->lhs
 #define Goal_RHS(obj) ((GoalObject *)obj)->rhs
+
+typedef struct {
+  PyObject_HEAD PyObject *goal;
+} FreshGoalObject;
 
 #endif
