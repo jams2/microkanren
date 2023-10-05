@@ -1,22 +1,23 @@
 [project]
 name = "microkanren"
-version = "0.4.0"
+version = "0.4.1"
 authors = [
     { name="Joshua Munn", email="public@elysee-munn.family" },
 ]
 description = "A Python implementation of microkanren extended with constraints"
 readme = "README.md"
-requires-python = "~=3.11"
+requires-python = ">=3.11,<3.13"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Development Status :: 2 - Pre-Alpha",
 ]
 dependencies = [
     "pyrsistent ~= 0.19",
-    "fastcons ~= 0.4.0",
+    "fastcons == 0.4.1",
     "immutables ~= 0.19",
 ]
 license = {file = "LICENSE"}
