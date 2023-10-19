@@ -17,7 +17,7 @@ import immutables
 from fastcons import cons, nil
 from pyrsistent import PClass, field
 
-from microkanren.utils import identity
+from microkanren.utils import foldr, identity
 
 NOT_FOUND = object()
 
@@ -108,10 +108,10 @@ class Goal:
         self.goal = goal
 
     def __call__(self, state: State) -> Stream:
+        # Inverse η-delay happens here
         return lambda: self.goal(state)
 
     def __or__(self, other):
-        # Use disj and conj instead of _disj and _conj, as the former delay their goals
         return disj(self, other)
 
     def __and__(self, other):
@@ -248,10 +248,8 @@ def delay(g: GoalProto) -> GoalProto:
     return Goal(lambda state: g(state))
 
 
-def disj(g: GoalProto, *goals: GoalProto) -> GoalProto:
-    if goals == ():
-        return g
-    return reduce(_disj, (goal for goal in goals), g)
+def disj(*goals: GoalProto) -> GoalProto:
+    return foldr(_disj, fail(), goals)
 
 
 def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
@@ -261,10 +259,8 @@ def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
     return Goal(__disj)
 
 
-def conj(g: GoalProto, *goals: GoalProto) -> GoalProto:
-    if goals == ():
-        return g
-    return reduce(_conj, (goal for goal in goals), g)
+def conj(*goals: GoalProto) -> GoalProto:
+    return foldr(_conj, succeed(), goals)
 
 
 def _conj(g1: GoalProto, g2: GoalProto) -> GoalProto:
