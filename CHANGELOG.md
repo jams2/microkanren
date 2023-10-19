@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- Order of execution of goals inside a disj
+
+## [0.4.1] - 2023-10-05
+
+### Changed
+- Added Python 3.12 support
+- Bumped `fastcons` dependency
+
 ## [0.4.0] - 2023-04-23
 
 ### Added
