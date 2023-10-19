@@ -64,9 +64,9 @@ Conjunction and disjunction are provided by the vararg `conj` and `disj` functio
 ``` python-console
 >>> from microkanren import run_all
 >>> run_all(lambda x: disj(eq(x, "α"), eq(x, "β"), eq(x, "δ")))
-['δ', 'α', 'β']
+['α', 'β', 'δ']
 >>> run_all(lambda x: eq(x, "α") | eq(x, "β") | eq(x, "δ"))
-['δ', 'α', 'β']
+['α', 'β', 'δ']
 >>> run_all(lambda x: eq(x, "ω") & eq(x, "ω"))
 ['ω']
 >>> run_all(lambda x: conj(eq(x, "ω"), eq(x, "ω")))
