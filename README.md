@@ -163,8 +163,6 @@ black .
 ruff check --fix src tests
 ```
 
----
-
 [^1]: [μKanren: A Minimal Functional Core for Relational Programming (Hemann & Friedman, 2013)](http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf)
 [^2]: [cKanren: miniKanren with constraints (Alvis et al, 2011)](http://www.schemeworkshop.org/2011/papers/Alvis2011.pdf)
 [^3]: original example `fives` from the μKanren paper altered here to provide more pizza

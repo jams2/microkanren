@@ -212,7 +212,7 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
         case (_, *_) as xs, (_, *_) as ys if (
             len(xs) == len(ys) and type(xs) == type(ys)
         ):
-            for x, y in zip(xs, ys):
+            for x, y in zip(xs, ys):  # NOQA: B905
                 s = unify(x, y, s)
                 if s is None:
                     return None
@@ -313,8 +313,8 @@ def pairs(xs):
         try:
             b = next(_xs)
             yield (a, b)
-        except StopIteration:
-            raise ValueError("got sequence with uneven length")
+        except StopIteration as err:
+            raise ValueError("got sequence with uneven length") from err
 
 
 def unpairs(xs):

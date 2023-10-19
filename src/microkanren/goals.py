@@ -45,7 +45,9 @@ def starfoldr(f, xs, initial):
     return accum
 
 
-def ifte(g1, g2, g3=fail()) -> GoalProto:
+def ifte(g1, g2, g3=None) -> GoalProto:
+    g3 = g3 or fail()
+
     def _ifte(state: State) -> Stream:
         # TODO: rewrite iteratively
         def ifte_loop(stream: Stream) -> Stream:

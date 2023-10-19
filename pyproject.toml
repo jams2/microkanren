@@ -16,9 +16,9 @@ classifiers = [
     "Development Status :: 2 - Pre-Alpha",
 ]
 dependencies = [
-    "pyrsistent ~= 0.19",
+    "pyrsistent >= 0.19, < 1",
     "fastcons == 0.4.1",
-    "immutables ~= 0.19",
+    "immutables >= 0.19, < 1",
 ]
 license = {file = "LICENSE"}
 
@@ -28,11 +28,11 @@ license = {file = "LICENSE"}
 
 [project.optional-dependencies]
 dev = [
-    "black ~= 23.1.0",
-    "ruff ~= 0.0.256",
+    "black == 23.10.0",
+    "ruff == 0.1.0",
 ]
-testing = ["pytest ~= 7.2.2", "pytest-profiling ~= 1.7.0"]
-build = ["hatch ~= 1.7.0"]
+testing = ["tox == 4.11.3", "pytest == 7.2.2", "pytest-profiling == 1.7.0"]
+build = ["hatch == 1.7.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -47,18 +47,34 @@ line-length = 88
 src = ["src", "tests"]
 target-version = "py311"
 select = [
-  "E",   # pycodestyle
-  "F",   # pyflakes
-  "UP",  # pyupgrade
-  "I",   # isort
-  "ARG", # unused arguments
-  "PT",  # pytest style
-  "T10", # flake8-debugger
-  "C4",  # flake8-comprehensions
+  "B",       # flake8-bugbear
+  "BLE",     # flake8-blind-except
+  "PGH",     # pygrep-hooks
+  "E",       # pycodestyle
+  "F",       # pyflakes
+  "UP",      # pyupgrade
+  "I",       # isort
+  "ARG",     # unused arguments
+  "PT",      # pytest style
+  "T10",     # flake8-debugger
+  "C4",      # flake8-comprehensions
+  "RUF100",  # unused-noqa
+  "S",       # flake8-bandit
+  "T20",     # flake8-print
+  "W",       # pycodestyle warnings
+  "YTT",     # flake8-2020
 ]
 unfixable = [
-  "ARG", # unused arguments
+  "ARG",     # unused arguments
 ]
+ignore = [
+  "S101",    # Use of `assert`
+]
+
+[isort]
+known-first-party = ["microkanren"]
+lines-between-types = 1
+lines-after-imports = 2
 
 [tool.pyright]
 pythonVersion = "3.11"
