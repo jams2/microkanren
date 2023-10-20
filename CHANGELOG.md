@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Order of execution of goals inside a disj
 
+### Added
+- CI workflows using GitHub actions
+
 ## [0.4.1] - 2023-10-05
 
 ### Changed
