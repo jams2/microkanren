@@ -1,11 +1,7 @@
 name: microkanren publishing
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*.*.*'
+  release: [published]
 
 jobs:
   build:
