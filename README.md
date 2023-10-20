@@ -98,7 +98,7 @@ A `Stream` is either:
 ``` python-console
 >>> def likes_pizza(person, out):
 ...     return eq(out, (person, "likes 🍕"))
-... 
+...
 >>> run_all(lambda q: likes_pizza("Jane", q) | likes_pizza("Bill", q))
 [('Jane', 'likes 🍕'), ('Bill', 'likes 🍕')]
 ```
@@ -124,7 +124,7 @@ If your goal constructor is directly recursive, it will never terminate.
 ``` python-console
 >>> def always_pizza(x):
 ...     return eq(x, "🍕") | always_pizza(x)
-... 
+...
 >>> run(1, lambda x: always_pizza(x))
 ...
 RecursionError: maximum recursion depth exceeded while calling a Python object
@@ -135,7 +135,7 @@ We provide `snooze` to delay the construction of a goal until it is needed. Usin
 ``` python-console
 >>> def always_pizza(x):
 ...     return eq(x, "🍕") | snooze(always_pizza, x)
-... 
+...
 >>> rs = irun(lambda x: always_pizza(x))
 >>> next(rs)
 '🍕'
@@ -162,8 +162,6 @@ Format code with `black` and `ruff`:
 black .
 ruff check --fix src tests
 ```
-
----
 
 [^1]: [μKanren: A Minimal Functional Core for Relational Programming (Hemann & Friedman, 2013)](http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf)
 [^2]: [cKanren: miniKanren with constraints (Alvis et al, 2011)](http://www.schemeworkshop.org/2011/papers/Alvis2011.pdf)
