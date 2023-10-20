@@ -1,15 +1,11 @@
 name: microkanren publishing
 
 on:
-  release: [published]
+  release:
+    types: [published]
 
 jobs:
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-
   publish:
-    needs: build
     runs-on: ubuntu-latest
     environment: publish
 
