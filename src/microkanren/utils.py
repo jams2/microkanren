@@ -1,5 +1,7 @@
 from itertools import filterfalse, tee
 
+from fastcons import cons
+
 
 def identity(x):
     return x
@@ -15,3 +17,7 @@ def foldr(f, b, xs):
         return b
     x, *xs = xs
     return f(x, foldr(f, b, xs))
+
+
+def _(*xs):
+    return cons.from_xs(xs)

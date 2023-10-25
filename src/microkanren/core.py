@@ -1,16 +1,6 @@
-"""
-TODO: maybe add a const_string or symbol type to avoid overhead for strings that won't
-be combined/mutated
-
-TODO: can we improve memory efficiency of domains by storing min/max of intervals only?
-
-TODO: maybe store constraints as an inverse mapping of operands to constraints for more
-efficient access
-"""
-
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
-from functools import reduce, wraps
+from functools import partial, reduce, wraps
 from typing import Any, Optional, Protocol, TypeAlias, TypeVar
 
 import immutables
@@ -514,19 +504,12 @@ def itake(s: Stream) -> list[State]:
         yield first
 
 
-def reify(states: list[State], *top_level_vars: Var):
-    if len(top_level_vars) == 1:
-        return [reify_state(s, top_level_vars[0]) for s in states]
-    return [tuple(reify_state(s, var) for var in top_level_vars) for s in states]
+def reify(states: list[State], var: Var):
+    return [reify_state(s, var) for s in states]
 
 
-def ireify(states: Generator[State, None, None], *top_level_vars: Var):
-    if len(top_level_vars) == 1:
-        yield from (reify_state(s, top_level_vars[0]) for s in states)
-    else:
-        yield from (
-            tuple(reify_state(s, var) for var in top_level_vars) for s in states
-        )
+def ireify(states: Generator[State, None, None], var: Var):
+    yield from (reify_state(s, var) for s in states)
 
 
 def reify_state(state: State, v: Var) -> Value:
@@ -568,36 +551,34 @@ def call_with_empty_state(g: GoalProto) -> Stream:
 
 
 def run(n: int, f_fresh_vars: Callable[..., GoalProto]):
-    n_vars = f_fresh_vars.__code__.co_argcount
-    fresh_vars = tuple(Var(i) for i in range(n_vars))
-    state = State.empty().set(var_count=n_vars)
-    goal = conj(
-        f_fresh_vars(*fresh_vars),
-        *map(Hooks.enforce_constraints, fresh_vars),
-    )
-    return reify(take(n, goal(state)), *fresh_vars)
+    return _run(f_fresh_vars, partial(take, n), reify)
 
 
 def run_all(f_fresh_vars: Callable[..., GoalProto]):
-    n_vars = f_fresh_vars.__code__.co_argcount
-    fresh_vars = tuple(Var(i) for i in range(n_vars))
-    state = State.empty().set(var_count=n_vars)
-    goal = conj(
-        f_fresh_vars(*fresh_vars),
-        *map(Hooks.enforce_constraints, fresh_vars),
-    )
-    return reify(take_all(goal(state)), *fresh_vars)
+    return _run(f_fresh_vars, take_all, reify)
 
 
 def irun(f_fresh_vars: Callable[..., GoalProto]):
+    return _run(f_fresh_vars, itake, ireify)
+
+
+def _run(f_fresh_vars, take, reify):
     n_vars = f_fresh_vars.__code__.co_argcount
-    fresh_vars = tuple(Var(i) for i in range(n_vars))
-    state = State.empty().set(var_count=n_vars)
+    fresh_vars = tuple(Var(i) for i in range(1, n_vars + 1))
+    state = State.empty().set(var_count=n_vars + 1)
+
+    # We set up `q' and associate it with `fresh_vars' as the first goal
+    # so all of the top-level vars requested by the user are reified wrt
+    # the same substitution, giving accurate variable "numbers". Without
+    # this, we may get incorrect multiple appearances of `_.0', for
+    # instance.
+    q = Var(0)
     goal = conj(
+        eq(q, fresh_vars if len(fresh_vars) > 1 else fresh_vars[0]),
         f_fresh_vars(*fresh_vars),
         *map(Hooks.enforce_constraints, fresh_vars),
     )
-    return ireify(itake(goal(state)), *fresh_vars)
+    return reify(take(goal(state)), q)
 
 
 def default_process_prefix(*_):
