@@ -1,6 +1,8 @@
+from fastcons import cons, nil
 from pyrsistent import pmap
 
 from microkanren import (
+    ReifiedVar,
     Var,
     disj,
     empty_sub,
@@ -13,6 +15,8 @@ from microkanren import (
     snooze,
     walk,
 )
+from microkanren.goals import appendo
+from microkanren.utils import _
 
 
 class TestSubstitution:
@@ -99,3 +103,13 @@ def test_disj_interleaving():
         )
 
     assert "".join(run(9, lambda x: patho("a", x))) == "badbadbad"
+
+
+def test_vars_reified_correctly():
+    # Test the reification of fresh variables matches a known example (appendo)
+
+    R = ReifiedVar
+    result = run(3, lambda x, y, z: appendo(x, y, z))
+    assert result[0] == (nil(), R(0), R(0))
+    assert result[1] == (_(R(0)), R(1), cons(R(0), R(1)))
+    assert result[2] == (_(R(0), R(1)), R(2), cons(R(0), cons(R(1), R(2))))
