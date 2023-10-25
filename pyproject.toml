@@ -27,10 +27,7 @@ license = {file = "LICENSE"}
 "Bug Tracker" = "https://github.com/jams2/microkanren/issues"
 
 [project.optional-dependencies]
-dev = [
-    "black == 23.10.0",
-    "ruff == 0.1.0",
-]
+dev = ["ruff == 0.1.2"]
 testing = ["tox == 4.11.3", "pytest == 7.2.2", "pytest-profiling == 1.7.0"]
 build = ["hatch == 1.7.0"]
 
@@ -69,6 +66,8 @@ unfixable = [
 ]
 ignore = [
   "S101",    # Use of `assert`
+  "E501",    # line-too-long (conflicts with formatter)
+  "W191",    # tab-indentation (conflicts with formatter)
 ]
 
 [isort]
