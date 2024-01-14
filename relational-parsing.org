@@ -1,0 +1,167 @@
+* Setup                                                            :noexport:
+:PROPERTIES:
+:header-args:python: :session parsers :results value pp replace :exports both
+:END:
+
+#+begin_src emacs-lisp :session parsers
+  (pyvenv-workon "microkanren-dev-311")
+#+end_src
+
+#+RESULTS:
+
+#+NAME: pp
+#+begin_src emacs-lisp :var input="" :results output :exports none
+  (pp input)
+#+end_src
+
+#+RESULTS: pp
+: ""
+
+** Imports
+
+#+begin_src python
+  from microkanren import run, fresh, conj, disj, eq
+  from microkanren.goals import conso
+  from fastcons import cons, nil
+#+end_src
+
+#+RESULTS:
+
+** Helpers
+
+#+begin_src python
+  def _(*args):
+      return cons.from_xs(args)
+
+  def appendo(xs, ys, zs):
+      return disj(
+          eq(xs, nil()) & eq(ys, zs),
+          fresh(
+              lambda a, d, res: conj(
+                  eq(cons(a, d), xs),
+                  eq(cons(a, res), zs),
+                  appendo(d, ys, res),
+              ),
+          ),
+      )
+#+end_src
+
+#+RESULTS:
+
+* Parsers with results
+:PROPERTIES:
+:header-args:python: :session parsers :results value pp replace :exports both
+:END:
+
+** Grammar (Lambda Calculus)
+
+#+begin_example
+  Term → Abs | App | Var
+  Abs  → 'λ' Var '.' Term
+  App  → Var App'
+  App' → Term App'
+  App' → ε
+  Var → 'x'
+#+end_example
+
+** Parsing Var
+
+#+begin_src python
+  def Var(xs, ys, tree):
+      return conj(
+          conso("x", ys, xs),
+          eq(tree, cons("Var", "x")),
+      )
+
+  run(1, lambda x,y,z: Var(x,y,z))
+#+end_src
+
+#+RESULTS:
+: [(('x' . _.0), _.0, ('var' . 'x'))]
+
+** Parsing App
+
+#+begin_src python
+  def pairo(x):
+      return fresh(lambda a, d: conso(a, d, x))
+
+
+  def App(xs, ys, tree):
+      def _make_app(xs, tree):
+          return fresh(
+              lambda a, d, res: conj(
+                  conso(a, d, xs),
+                  disj(
+                      eq(d, nil()) & eq(tree, a),
+                      conj(
+                          pairo(d),
+                          _make_app(d, res),
+                          eq(_("App", a, res), tree),
+                      ),
+                  ),
+              )
+          )
+
+      return fresh(
+          lambda var, rest, terms, _1: conj(
+              Var(xs, _1, var),
+              App_(_1, ys, rest),
+              disj(
+                  eq(rest, nil()) & eq(tree, var),
+                  conj(
+                      pairo(rest),
+                      appendo(_(var), rest, terms),
+                      _make_app(terms, tree),
+                  ),
+              ),
+          ),
+      )
+
+
+  def App_(xs, ys, tree):
+      return disj(
+          eq(xs, nil()) & eq(ys, nil()) & eq(tree, nil()),
+          fresh(
+              lambda _1, rator, rand: conj(
+                  Term(xs, _1, rator),
+                  App_(_1, ys, rand),
+                  disj(
+                      eq(rand, nil()) & eq(tree, rator),
+                      fresh(
+                          lambda _1, _2: conj(
+                              conso(_1, _2, rand),
+                              eq(tree, _(rator, rand)),
+                          )
+                      ),
+                  ),
+              )
+          ),
+      )
+
+
+  def Term(xs, ys, tree):
+      return disj(
+          Var(xs, ys, tree),
+          App(xs, ys, tree),
+      )
+
+
+  run(5, lambda xs, ys, tree: App(xs, ys, tree))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[(('x'), nil(), ('var' . 'x')),
+ (('x' 'x' 'x'),
+  nil(),
+  ('App' ('var' . 'x') ('App' ('var' . 'x') ('var' . 'x')))),
+ (('x' 'x' 'x'),
+  nil(),
+  ('App' ('var' . 'x') ('App' ('var' . 'x') ('var' . 'x')))),
+ (('x' 'x' 'x' 'x'),
+  nil(),
+  ('App' ('var' . 'x') ('App' ('var' . 'x') (('var' . 'x') ('var' . 'x'))))),
+ (('x' 'x' 'x' 'x'),
+  nil(),
+  ('App' ('var' . 'x') ('App' 'App' ('App' ('var' . 'x') ('App' ('var' . 'x') ('var' . 'x'))))))]
+#+end_example

@@ -1,7 +1,7 @@
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from functools import partial, reduce, wraps
-from typing import Any, Optional, Protocol, TypeAlias, TypeVar
+from typing import Any, Optional, Protocol, Self, TypeAlias, TypeVar
 
 import immutables
 from fastcons import cons, nil
@@ -12,17 +12,26 @@ from microkanren.utils import foldr, identity
 NOT_FOUND = object()
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass
 class Var:
-    i: int
+    @classmethod
+    def reified(cls, *_):
+        return cls()
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class ReifiedVar:
     i: int
 
     def __repr__(self):
         return f"_.{self.i}"
+
+    @classmethod
+    def reified(cls, s: "Substitution") -> Self:
+        return cls(len(s))
+
+    def __hash__(self):
+        return hash(self.i)
 
 
 Value: TypeAlias = (
@@ -51,7 +60,6 @@ class State(PClass):
     sub = field(mandatory=True)
     domains = field(mandatory=True)
     constraints = field(mandatory=True)
-    var_count = field(mandatory=True)
 
     @staticmethod
     def empty():
@@ -59,7 +67,6 @@ class State(PClass):
             sub=empty_sub(),
             domains=empty_domain_store(),
             constraints=empty_constraint_store(),
-            var_count=0,
         )
 
     def get_domain(self, x: Var) -> set[int] | None:
@@ -180,7 +187,7 @@ def extend_constraint_store(
 def occurs(x, v, s):
     v = walk(v, s)
     match v:
-        case Var(_) as var:
+        case Var() as var:
             return var == x
         case (a, d) | cons(a, d):
             return occurs(x, a, s) or occurs(x, d, s)
@@ -190,11 +197,11 @@ def occurs(x, v, s):
 
 def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
     match walk(u, s), walk(v, s):
-        case (Var(_) as vi, Var(_) as vj) if vi == vj:
+        case (Var() as vi, Var() as vj) if vi == vj:
             return s
-        case (Var(_) as var, val):
+        case (Var() as var, val):
             return extend_substitution(var, val, s)
-        case (val, Var(_) as var):
+        case (val, Var() as var):
             return extend_substitution(var, val, s)
         case cons(x, xs), cons(y, ys):
             s1 = unify(x, y, s)
@@ -354,7 +361,7 @@ def neqc(u, v, *rest) -> ConstraintFunction:
 
 def any_relevant_vars(operands, values):
     match operands:
-        case Var(_) as v:
+        case Var() as v:
             return v in values
         case [first, *rest]:
             return any_relevant_vars(first, values) or any_relevant_vars(rest, values)
@@ -426,7 +433,7 @@ class UnboundVariables(Exception):
 def force_answer(x: Var | list[Var]) -> GoalProto:
     def _force_answer(state: State) -> Stream:
         match walk(x, state.sub):
-            case Var(_) as var if (d := state.get_domain(var)) is not None:
+            case Var() as var if (d := state.get_domain(var)) is not None:
                 return map_sum(lambda val: eq(x, val), d)(state)
             case (first, *rest) | cons(first, rest):
                 return conj(force_answer(first), force_answer(rest))(state)
@@ -455,18 +462,16 @@ def fresh(fp: Callable) -> GoalProto:
     n = fp.__code__.co_argcount
 
     def _fresh(state: State) -> Stream:
-        i = state.var_count
-        vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.set(var_count=i + n))
+        vs = (Var() for _ in range(n))
+        return fp(*vs)(state)
 
     return Goal(_fresh)
 
 
 def freshn(n: int, fp: Callable) -> GoalProto:
     def _fresh(state: State) -> Stream:
-        i = state.var_count
-        vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.set(var_count=i + n))
+        vs = (Var() for _ in range(n))
+        return fp(*vs)(state)
 
     return Goal(_fresh)
 
@@ -564,15 +569,15 @@ def irun(f_fresh_vars: Callable[..., GoalProto]):
 
 def _run(f_fresh_vars, take, reify):
     n_vars = f_fresh_vars.__code__.co_argcount
-    fresh_vars = tuple(Var(i) for i in range(1, n_vars + 1))
-    state = State.empty().set(var_count=n_vars + 1)
+    fresh_vars = tuple(Var() for _ in range(n_vars))
+    state = State.empty()
 
     # We set up `q' and associate it with `fresh_vars' as the first goal
     # so all of the top-level vars requested by the user are reified wrt
     # the same substitution, giving accurate variable "numbers". Without
     # this, we may get incorrect multiple appearances of `_.0', for
     # instance.
-    q = Var(0)
+    q = Var()
     goal = conj(
         eq(q, fresh_vars if len(fresh_vars) > 1 else fresh_vars[0]),
         f_fresh_vars(*fresh_vars),
