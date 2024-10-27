@@ -191,9 +191,14 @@ def extend_substitution(
 
 
 def occurs(x: Var, v: Any, sub: Substitution) -> bool:
+    """
+    Does `x' occur in `v' with regards to `sub'?
+    """
     v = walk(v, sub)
     if isinstance(v, Var):
         return v == x
+    elif isinstance(v, cons):
+        return occurs(x, v.head, sub) or occurs(x, v.tail, sub)
     elif isinstance(v, list | tuple):
         return any(occurs(x, term, sub) for term in v)
     else:
@@ -503,8 +508,3 @@ def w_check(
             return loop(w[1:], WaitingStream([w[0], *a]))
 
     return loop(w, WaitingStream())
-
-
-@tabled
-def fives(x):
-    return disj(eq(x, 5), lambda sc: lambda: fives(x)(sc))

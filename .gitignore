@@ -133,3 +133,4 @@ prof
 profiling.py
 sudoku.py
 .ccls-cache
+.aider*

@@ -39,6 +39,10 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 minversion = 7.0
+filterwarnings = [
+    "ignore:ast.NameConstant is deprecated:DeprecationWarning",
+    "ignore:ast.Str is deprecated:DeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 88
