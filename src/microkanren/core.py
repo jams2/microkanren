@@ -1,623 +1,510 @@
-from collections import namedtuple
-from collections.abc import Callable, Generator
-from dataclasses import dataclass
-from functools import partial, reduce, wraps
-from typing import Any, Optional, Protocol, TypeAlias, TypeVar
+from collections.abc import Callable
+from functools import reduce
+from typing import (
+    Any,
+    ClassVar,
+    NamedTuple,
+    Self,
+    SupportsIndex,
+    cast,
+    overload,
+)
 
 import immutables
-from fastcons import cons, nil
-from pyrsistent import PClass, field
-
-from microkanren.utils import foldr, identity
-
-NOT_FOUND = object()
+from fastcons import cons
 
 
-class Var(namedtuple("Var", ("i",))): ...
+class OccursError(Exception): ...
 
 
-class ReifiedVar(namedtuple("ReifiedVar", ("i",))):
-    def __repr__(self):
-        return f"_.{self.i}"
+class Sentinel: ...
 
 
-Value: TypeAlias = (
-    Var | int | str | bool | tuple["Value", ...] | list["Value"] | cons | nil
-)
-Substitution: TypeAlias = immutables.Map[Var, Value]
-NeqStore: TypeAlias = list[list[tuple[Var, Value]]]
-DomainStore: TypeAlias = immutables.Map[Var, set[int]]
-ConstraintFunction: TypeAlias = Callable[["State"], Optional["State"]]
-ConstraintStore: TypeAlias = list["Constraint"]
+SENTINEL = Sentinel()
+
+
+class Var:
+    i: int
+    _cache: ClassVar[dict[int, Self] | None] = None
+    __match_args__ = ("i",)
+
+    def __new__(cls, i) -> Self:
+        if (cache := cls._cache) is None:
+            cache = {}
+            cls._cache = cache
+
+        if i in cache:
+            return cache[i]
+
+        instance = super().__new__(cls)
+        cache[i] = instance
+        return instance
+
+    def __init__(self, i: int):
+        self.i = i
+
+    def __repr__(self) -> str:
+        return f"Var({self.i})"
+
+    def __hash__(self):
+        return hash((self.__class__, self.i))
+
+    def __eq__(self, other):
+        return other is self
+
+
+class Symbol:
+    name: str
+    _cache: ClassVar[dict[str, Self] | None] = None
+
+    def __new__(cls, name: str) -> Self:
+        if (cache := cls._cache) is None:
+            cache = {}
+            cls._cache = cache
+
+        if name in cache:
+            return cache[name]
+
+        instance = super().__new__(cls)
+        cache[name] = instance
+        return instance
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __hash__(self):
+        return hash((self.__class__, self.name))
+
+    def __eq__(self, other):
+        return other is self
+
+
+type Substitution = immutables.Map[Var, Any]
 
 
 def empty_sub() -> Substitution:
     return immutables.Map()
 
 
-def empty_domain_store() -> DomainStore:
-    return immutables.Map()
+class State(NamedTuple):
+    counter: int
+    sub: Substitution
 
 
-def empty_constraint_store() -> ConstraintStore:
-    return []
+type TableCache = list
 
 
-class State(PClass):
-    sub = field(mandatory=True)
-    domains = field(mandatory=True)
-    constraints = field(mandatory=True)
-    var_count = field(mandatory=True)
+class SuspendedStream(NamedTuple):
+    cache: TableCache
 
-    @staticmethod
-    def empty():
-        return State(
-            sub=empty_sub(),
-            domains=empty_domain_store(),
-            constraints=empty_constraint_store(),
-            var_count=0,
-        )
+    # A suffix of the tabled goal's cached answers. Indicates which of the
+    # primary call's answer terms this stream has already processed.
+    answer_terms: list
 
-    def get_domain(self, x: Var) -> set[int] | None:
-        return self.domains.get(x, None)
+    # Produces the remainder of the stream.
+    thunk: Callable[[], "Stream"]
 
 
-class ConstraintProto(Protocol):
-    def __call__(self, *args: Any) -> ConstraintFunction: ...
+def ready_stream(ss: SuspendedStream) -> bool:
+    """
+    Does the cache contain new answer terms not yet consumed by the stream?
+    """
+    return ss.cache != ss.answer_terms
 
 
-@dataclass(slots=True, frozen=True)
-class Constraint:
-    func: ConstraintProto
-    operands: tuple[Value]
+class WaitingStream(list[SuspendedStream]):
+    @overload
+    def __getitem__(self, key: SupportsIndex) -> SuspendedStream: ...
 
-    def __call__(self, state: State) -> State | None:
-        return self.func(*self.operands)(state)
+    @overload
+    def __getitem__(self, key: slice) -> Self: ...
 
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            return self.__class__(super().__getitem__(key))
+        else:
+            return super().__getitem__(key)
 
-Stream: TypeAlias = tuple[()] | Callable[[], "Stream"] | tuple[State, "Stream"]
+    def __add__(self, value) -> "WaitingStream":
+        if not isinstance(value, self.__class__):
+            raise TypeError(
+                "WaitingStream can only be concatenated with another WaitingStream instance"
+            )
+        return WaitingStream([*self, *value])
 
+    def __repr__(self) -> str:
+        return f"WaitingStream({super().__repr__()})"
 
-class GoalProto(Protocol):
-    def __call__(self, state: State) -> Stream: ...
-
-
-class GoalConstructorProto(Protocol):
-    def __call__(self, *args: Value) -> GoalProto: ...
-
-
-class Goal:
-    def __init__(self, goal: GoalProto):
-        self.goal = goal
-
-    def __call__(self, state: State) -> Stream:
-        # Inverse η-delay happens here
-        return lambda: self.goal(state)
-
-    def __or__(self, other):
-        return disj(self, other)
-
-    def __and__(self, other):
-        return conj(self, other)
+    def __str__(self) -> str:
+        return f"WaitingStream({super().__str__()})"
 
 
-def goal_from_constraint(constraint: ConstraintFunction) -> GoalProto:
-    def _goal(state: State) -> Stream:
-        match constraint(state):
-            case None:
-                return mzero
-            case _ as next_state:
-                return unit(next_state)
-
-    return Goal(_goal)
+type EmptyStream = tuple[()]
+type ReadyStream = tuple[State, "Stream"]
+type ThunkStream = Callable[[], "Stream"]
+type Stream = EmptyStream | ReadyStream | ThunkStream | WaitingStream
+type Goal = Callable[[State], Stream]
+type GoalConstructor = Callable[..., Goal]
 
 
-class InvalidStream(Exception):
-    pass
+def empty(stream: Stream):
+    return stream == ()
 
 
-mzero = ()
+def empty_state():
+    return State(0, empty_sub())
 
 
-def unit(state: State) -> Stream:
-    return (state, mzero)
+def walk(candidate: Any, sub: Substitution) -> Any:
+    while isinstance(candidate, Var):
+        result = sub.get(candidate, SENTINEL)
+        if result is SENTINEL:
+            return candidate
+        candidate = result
+    return candidate
 
 
-def mplus(s1: Stream, s2: Stream) -> Stream:
-    match s1:
-        case ():
-            return lambda: s2
-        case f if callable(f):
-            return lambda: mplus(s2, f())
-        case (head, tail):
-            return lambda: (head, mplus(s2, tail))
-        case _:
-            raise InvalidStream
+def deep_walk(candidate: Any, sub: Substitution) -> Any:
+    """
+    Like `walk', but reify elements of lists/tuples.
+    """
+    candidate = walk(candidate, sub)
+    if isinstance(candidate, list | tuple):
+        container = type(candidate)
+        return container(deep_walk(x, sub) for x in candidate)
+    else:
+        return candidate
 
 
-def bind(stream: Stream, g: GoalProto) -> Stream:
-    match stream:
-        case ():
-            return mzero
-        case f if callable(f):
-            return lambda: bind(f(), g)
-        case (s1, s2):
-            return lambda: mplus(g(s1), bind(s2, g))
-        case _:
-            raise InvalidStream
+def extend_substitution(
+    x: Var, v: Any, sub: Substitution, occurs_check: bool = True
+) -> Substitution:
+    if occurs_check and occurs(x, v, sub):
+        raise OccursError(f"occurs_check failed ({x=}, {v=}, {sub=})")
+    return sub.set(x, v)
 
 
-def walk(u: Value, s: Substitution) -> Value:
-    if isinstance(u, Var):
-        bound = s.get(u, NOT_FOUND)
-        if bound is NOT_FOUND:
-            return u
-        return walk(bound, s)
-    return u
+def occurs(x: Var, v: Any, sub: Substitution) -> bool:
+    v = walk(v, sub)
+    if isinstance(v, Var):
+        return v == x
+    elif isinstance(v, list | tuple):
+        return any(occurs(x, term, sub) for term in v)
+    else:
+        return False
 
 
-def extend_substitution(x: Var, v: Value, s: Substitution) -> Substitution:
-    return s.set(x, v)
+def unit(state: State) -> ReadyStream:
+    return (state, mzero())
 
 
-def extend_domain_store(x: Var, fd: set[int], d: DomainStore) -> DomainStore:
-    return d.set(x, fd)
+def succeed(state: State) -> ReadyStream:
+    return unit(state)
 
 
-def extend_constraint_store(
-    constraint: Constraint, c: ConstraintStore
-) -> ConstraintStore:
-    return [constraint, *c]
+def mzero() -> EmptyStream:
+    return ()
 
 
-def occurs(x, v, s):
-    v = walk(v, s)
-    match v:
-        case Var(_) as var:
-            return var == x
-        case (a, d) | cons(a, d):
-            return occurs(x, a, s) or occurs(x, d, s)
-        case _:
-            return False
+def eq(u: Any, v: Any) -> Goal:
+    def _eq(state: State) -> EmptyStream | ReadyStream:
+        maybe_sub: Substitution | Sentinel = unify(u, v, state.sub)
+        if isinstance(maybe_sub, Sentinel):
+            return mzero()
+        return unit(State(state.counter, maybe_sub))
+
+    return _eq
 
 
-def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
+def unify(u: Any, v: Any, s: Substitution) -> Substitution | Sentinel:
+    """
+    Unify u and v in the Substitution s.
+    """
     match walk(u, s), walk(v, s):
-        case (Var(_) as vi, Var(_) as vj) if vi == vj:
+        case Var(_) as x, Var(_) as y if x is y:
             return s
-        case (Var(_) as var, val):
-            return extend_substitution(var, val, s)
-        case (val, Var(_) as var):
-            return extend_substitution(var, val, s)
+        case Var(_) as x, y:
+            return extend_substitution(x, y, s)
+        case x, Var(_) as y:
+            return extend_substitution(y, x, s)
         case cons(x, xs), cons(y, ys):
             s1 = unify(x, y, s)
-            return unify(xs, ys, s1) if s1 is not None else None
-        case (_, *_) as xs, (_, *_) as ys if (
-            len(xs) == len(ys) and type(xs) is type(ys)
-        ):
-            for x, y in zip(xs, ys):  # NOQA: B905
-                s = unify(x, y, s)
-                if s is None:
-                    return None
-            return s
+            return SENTINEL if isinstance(s1, Sentinel) else unify(xs, ys, s1)
+        case (x, *xs) as m, (y, *ys) as n if len(m) == len(n) and type(m) is type(n):
+            result = unify(x, y, s)
+            if isinstance(result, Sentinel):
+                return SENTINEL
+            return unify(xs, ys, result)
         case x, y if x == y:
             return s
         case _:
-            return None
+            return SENTINEL
 
 
-def succeed() -> GoalProto:
-    def _succeed(state):
-        return eq(True, True)(state)
+def call_fresh(f: Callable[[Var], Goal]) -> Goal:
+    def _goal(state: State) -> Stream:
+        i, sub = state
+        return f(Var(i))(State(i + 1, sub))
 
-    return Goal(_succeed)
-
-
-def fail() -> GoalProto:
-    def _fail(state):
-        return eq(False, True)(state)
-
-    return Goal(_fail)
+    return _goal
 
 
-def snooze(g: GoalConstructorProto, *args: Value) -> GoalProto:
-    def delayed_goal(state) -> Stream:
-        return g(*args)(state)
+def bind(stream: Stream, g: Goal) -> Stream:
+    if empty(stream):
+        return mzero()
+    elif callable(stream):
+        return lambda: bind(stream(), g)
+    elif isinstance(stream, WaitingStream):
+        return w_check(
+            stream,
+            lambda x: lambda: bind(x(), g),
+            lambda: WaitingStream(
+                SuspendedStream(
+                    x.cache,
+                    x.answer_terms,
+                    lambda x=x: bind(x.thunk(), g),
+                )
+                for x in stream
+            ),
+        )
+    else:
+        head, tail = cast(tuple[State, Stream], stream)
+        return mplus(g(head), bind(tail, g))
 
-    return Goal(delayed_goal)
+
+def mplus(left: Stream, right: Stream) -> Stream:
+    if empty(left):
+        return right
+    elif callable(left):
+        return lambda: mplus(right, left())
+    elif isinstance(left, WaitingStream):
+        return w_check(
+            left,
+            lambda x: lambda: mplus(right, x),
+            lambda: right + left
+            if isinstance(right, WaitingStream)
+            else mplus(right, lambda: left),
+        )
+    else:
+        head, tail = cast(tuple[State, Stream], left)
+        return (head, mplus(tail, right))
 
 
-def delay(g: GoalProto) -> GoalProto:
-    return Goal(lambda state: g(state))
-
-
-def disj(*goals: GoalProto) -> GoalProto:
-    return foldr(_disj, fail(), goals)
-
-
-def _disj(g1: GoalProto, g2: GoalProto) -> GoalProto:
-    def __disj(state: State) -> Stream:
+def disj(g1: Goal, g2: Goal) -> Goal:
+    def _disj(state: State):
         return mplus(g1(state), g2(state))
 
-    return Goal(__disj)
+    return _disj
 
 
-def conj(*goals: GoalProto) -> GoalProto:
-    return foldr(_conj, succeed(), goals)
-
-
-def _conj(g1: GoalProto, g2: GoalProto) -> GoalProto:
-    def __conj(state: State) -> Stream:
+def conj(g1: Goal, g2: Goal) -> Goal:
+    def _conj(state: State):
         return bind(g1(state), g2)
 
-    return Goal(__conj)
+    return _conj
 
 
-def eq(u: Value, v: Value) -> GoalProto:
-    def _eqc(state: State) -> State | None:
-        new_sub = unify(u, v, state.sub)
-        if new_sub is None:
-            # Unification failed
-            return None
-        elif new_sub == state.sub:
-            # Unification succeeded without new associations
-            return state
-        else:
-            prefix = get_sub_prefix(new_sub, state.sub)
-            return Hooks.process_prefix(prefix, state.constraints)(
-                state.set(sub=new_sub)
-            )
-
-    return goal_from_constraint(_eqc)
+### Reification
 
 
-def unify_all(
-    constraint: list[tuple[Var, Value]], sub: Substitution
-) -> Substitution | None:
-    match constraint:
-        case []:
-            return sub
-        case [(a, d), *rest]:
-            s = unify(a, d, sub)
-            if s is not None:
-                return unify_all(rest, s)
-            return None
-        case _:
-            return None
+def pull(x):
+    while callable(x):
+        x = x()
+    return x
 
 
-def pairs(xs):
-    _xs = iter(xs)
-    while True:
-        try:
-            a = next(_xs)
-        except StopIteration:
-            break
-        try:
-            b = next(_xs)
-            yield (a, b)
-        except StopIteration as err:
-            raise ValueError("got sequence with uneven length") from err
+def raise_(exc):
+    raise exc
 
 
-def unpairs(xs):
-    for a, b in xs:
-        yield a
-        yield b
-
-
-def maybe_unify(
-    pair: tuple[Value, Value], sub: Substitution | None
-) -> Substitution | None:
-    if sub is None:
-        return None
-    u, v = pair
-    return unify(u, v, sub)
-
-
-def flip(f):
-    @wraps(f)
-    def _flipped(x, y):
-        return f(y, x)
-
-    return _flipped
-
-
-def neq(u, v, /, *rest) -> GoalProto:
-    return goal_from_constraint(neqc(u, v, *rest))
-
-
-def neqc(u, v, *rest) -> ConstraintFunction:
-    def _neqc(state: State) -> State | None:
-        new_sub = reduce(flip(maybe_unify), pairs(rest), unify(u, v, state.sub))
-        if new_sub is None:
-            return state
-        elif new_sub == state.sub:
-            return None
-        prefix = get_sub_prefix(new_sub, state.sub)
-        remaining_pairs = tuple(prefix.items())
-        return state.set(
-            constraints=extend_constraint_store(
-                Constraint(neqc, tuple(unpairs(remaining_pairs))), state.constraints
-            )
+def take(n: int, stream: Stream):
+    if n == 0:
+        return []
+    s = pull(stream)
+    if empty(s):
+        return []
+    elif isinstance(s, WaitingStream):
+        return take(
+            n,
+            w_check(
+                s,
+                lambda x: x,
+                lambda: mzero(),
+            ),
         )
-
-    return _neqc
-
-
-def any_relevant_vars(operands, values):
-    match operands:
-        case Var(_) as v:
-            return v in values
-        case [first, *rest]:
-            return any_relevant_vars(first, values) or any_relevant_vars(rest, values)
-        case _:
-            return False
+    else:
+        a, d = cast(ReadyStream, s)
+        return [a, *take(n - 1, d)]
 
 
-def bind_constraints(f, g) -> ConstraintFunction:
-    def _bind_constraints(state: State) -> State | None:
-        maybe_state = f(state)
-        return g(maybe_state) if maybe_state is not None else None
-
-    return _bind_constraints
+def reify_symbol(i: int) -> Symbol:
+    return Symbol(f"_.{i}")
 
 
-def compose_constraints(f, g) -> ConstraintFunction:
-    return bind_constraints(f, g)
+def make_reify(representation):
+    def reify(v, s):
+        v = deep_walk(v, s)
+        return deep_walk(v, reify_sub(representation, v, empty_sub()))
+
+    return reify
 
 
-def run_constraints(
-    xs: list[Var] | set[Var], constraints: ConstraintStore
-) -> ConstraintFunction:
-    match constraints:
-        case []:
-            return identity
-        case [first, *rest]:
-            if any_relevant_vars(first.operands, xs):
-                return compose_constraints(
-                    remove_and_run(first),
-                    run_constraints(xs, rest),
+def reify_sub(representation: Callable, v: Any, sub: Substitution) -> Substitution:
+    v = walk(v, sub)
+    if isinstance(v, Var):
+        return extend_substitution(v, representation(len(sub)), sub, occurs_check=False)
+    elif isinstance(v, list | tuple):
+        return reduce(lambda s, x: reify_sub(representation, x, s), v, sub)
+    else:
+        return sub
+
+
+# Reify unbound logic variables as Symbols
+reify = make_reify(reify_symbol)
+
+# Reify unbound logic variables as fresh logic variables
+reify_var = make_reify(Var)
+
+# Reify as like reify_var, but transform i with f(i) = -(1+i). This
+# prevents circular mappings (e.g. {Var(0) → Var(0)}).
+reify_tabled_var = make_reify(lambda i: Var(-(1 + i)))
+
+
+### Tabling
+
+
+class Table(dict[tuple, TableCache]): ...
+
+
+def tabled(gc: GoalConstructor) -> GoalConstructor:
+    table = Table()
+
+    def tabled_gc(*args):
+        def tabled_goal(state: State) -> Stream:
+            # Reify `args' in the current substitution, use this as
+            # the cache key for a master call.
+            key = reify(args, state.sub)
+            if key not in table:
+                table[key] = []
+                return conj(
+                    gc(*args),
+                    primary_tabled_call(args, table[key]),
+                )(state)
+
+            # reuse_tabled_results gets a pointer to the cache, not a
+            # copy, so the suspended streams have access to newly
+            # cached results.
+            return reuse_tabled_results(args, table[key], state)
+
+        return tabled_goal
+
+    return tabled_gc
+
+
+def primary_tabled_call(args: tuple, cache: TableCache) -> Goal:
+    def _goal(state: State) -> Stream:
+        _, sub = state
+        reified_args = reify(args, sub)
+
+        # Check if the result is alpha-equivalent to any previous cached result.
+        if any(reified_args == reify(result, sub) for result in cache):
+            # If so, contribute no state.
+            return mzero()
+
+        # Otherwise, we have a new state to cache and contribute to the result.
+        cache.append(reify_tabled_var(args, sub))
+        return unit(state)
+
+    return _goal
+
+
+def alpha_equivalent(x: Any, y: Any, s: Substitution) -> bool:
+    return reify(x, s) == reify(y, s)
+
+
+def reuse_tabled_results(args: tuple, cache: TableCache, state: State) -> Stream:
+    # Fix is called at the beginning of the reuse call, with the whole cache.
+    # Fix is called as a SS's thunk in w_check, in the success continuation.
+    def fix(start, end) -> Stream:
+        def loop(cached_results):
+            if cached_results == end:
+                # This will run on the first iteration of `loop'.
+                return WaitingStream(
+                    # TODO: Should `cache' be a copy of the tabled
+                    # cache, or a pointer to it?
+                    [SuspendedStream(cache, start, lambda: fix(cache, start))]
                 )
             else:
-                return run_constraints(xs, rest)
-        case _:
-            raise ValueError("Invalid constraint store")
-
-
-def remove_and_run(constraint: Constraint) -> ConstraintFunction:
-    def _remove_and_run(state: State) -> State | None:
-        if constraint in state.constraints:
-            constraints = [x for x in state.constraints if x != constraint]
-            return constraint(state.set(constraints=constraints))
-        else:
-            return state
-
-    return _remove_and_run
-
-
-def process_prefix_neq(
-    prefix: Substitution, constraints: ConstraintStore
-) -> ConstraintFunction:
-    prefix_vars = {x for x in prefix.keys() if isinstance(x, Var)}
-    prefix_vars.update({x for x in prefix.values() if isinstance(x, Var)})
-    return run_constraints(prefix_vars, constraints)
-
-
-def enforce_constraints_neq(_: Var) -> GoalProto:
-    return lambda state: unit(state)
-
-
-def reify_constraints_neq(_: Var, __: Substitution) -> ConstraintFunction:
-    return identity
-
-
-class UnboundVariables(Exception):
-    pass
-
-
-def force_answer(x: Var | list[Var]) -> GoalProto:
-    def _force_answer(state: State) -> Stream:
-        match walk(x, state.sub):
-            case Var(_) as var if (d := state.get_domain(var)) is not None:
-                return map_sum(lambda val: eq(x, val), d)(state)
-            case (first, *rest) | cons(first, rest):
-                return conj(force_answer(first), force_answer(rest))(state)
-            case _:
-                return succeed()(state)
-
-    return _force_answer
-
-
-A = TypeVar("A")
-
-
-def map_sum(goal_constructor: Callable[[A], GoalProto], xs: list[A]) -> GoalProto:
-    return reduce(lambda accum, x: disj(accum, goal_constructor(x)), xs, fail())
-
-
-def get_sub_prefix(new_sub: Substitution, old_sub: Substitution) -> Substitution:
-    mutation = new_sub.mutate()
-    for k in new_sub:
-        if k in old_sub:
-            del mutation[k]
-    return mutation.finish()
-
-
-def fresh(fp: Callable) -> GoalProto:
-    n = fp.__code__.co_argcount
-
-    def _fresh(state: State) -> Stream:
-        i = state.var_count
-        vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.set(var_count=i + n))
-
-    return Goal(_fresh)
-
-
-def freshn(n: int, fp: Callable) -> GoalProto:
-    def _fresh(state: State) -> Stream:
-        i = state.var_count
-        vs = (Var(j) for j in range(i, i + n))
-        return fp(*vs)(state.set(var_count=i + n))
-
-    return Goal(_fresh)
-
-
-def pull(s: Stream):
-    while callable(s):
-        s = s()
-    return s
-
-
-def take_all(s: Stream) -> list[State]:
-    result = []
-    rest = s
-    while (s := pull(rest)) != ():
-        first, rest = s
-        result.append(first)
-    return result
-
-
-def take(n, s: Stream) -> list[State]:
-    i = 0
-    result = []
-    rest = s
-    while i < n and (s := pull(rest)) != ():
-        first, rest = s
-        result.append(first)
-        i += 1
-    return result
-
-
-def itake(s: Stream) -> list[State]:
-    rest = s
-    while (s := pull(rest)) != ():
-        first, rest = s
-        yield first
-
-
-def reify(states: list[State], var: Var):
-    return [reify_state(s, var) for s in states]
-
-
-def ireify(states: Generator[State, None, None], var: Var):
-    yield from (reify_state(s, var) for s in states)
-
-
-def reify_state(state: State, v: Var) -> Value:
-    v = walk_all(v, state.sub)
-    reified_sub = reify_sub(v, empty_sub())
-    v = walk_all(v, reified_sub)
-    return Hooks.reify_value(Hooks.reify_constraints(v, reified_sub, state))
-
-
-def walk_all(v: Value, s: Substitution) -> Value:
-    v = walk(v, s)
-    match v:
-        case _ if isinstance(v, Var):
-            return v
-        case cons(a, d):
-            return cons(walk_all(a, s), walk_all(d, s))
-        case (first, *rest) as xs:
-            if isinstance(xs, list):
-                return [walk_all(first, s), *walk_all(rest, s)]
-            return (walk_all(first, s), *walk_all(rest, s))
-        case _:
-            return v
-
-
-def reify_sub(v: Value, s: Substitution) -> Substitution:
-    # Allows us to control how fresh Vars are reified
-    v = walk(v, s)
-    match v:
-        case _ if isinstance(v, Var):
-            return extend_substitution(v, Hooks.reify_var(v, s), s)
-        case (a, *d) | cons(a, d):
-            return reify_sub(d, reify_sub(a, s))
-        case _:
-            return s
-
-
-def call_with_empty_state(g: GoalProto) -> Stream:
-    return g(State.empty())
-
-
-def run(n: int, f_fresh_vars: Callable[..., GoalProto]):
-    return _run(f_fresh_vars, partial(take, n), reify)
-
-
-def run_all(f_fresh_vars: Callable[..., GoalProto]):
-    return _run(f_fresh_vars, take_all, reify)
-
-
-def irun(f_fresh_vars: Callable[..., GoalProto]):
-    return _run(f_fresh_vars, itake, ireify)
-
-
-def _run(f_fresh_vars, take, reify):
-    n_vars = f_fresh_vars.__code__.co_argcount
-    fresh_vars = tuple(Var(i) for i in range(1, n_vars + 1))
-    state = State.empty().set(var_count=n_vars + 1)
-
-    # We set up `q' and associate it with `fresh_vars' as the first goal
-    # so all of the top-level vars requested by the user are reified wrt
-    # the same substitution, giving accurate variable "numbers". Without
-    # this, we may get incorrect multiple appearances of `_.0', for
-    # instance.
-    q = Var(0)
-    goal = conj(
-        eq(q, fresh_vars if len(fresh_vars) > 1 else fresh_vars[0]),
-        f_fresh_vars(*fresh_vars),
-        *map(Hooks.enforce_constraints, fresh_vars),
-    )
-    return reify(take(goal(state)), q)
-
-
-def default_process_prefix(*_):
-    return identity
-
-
-def default_enforce_constraints(*_):
-    return succeed()
-
-
-def default_reify_constraints(value, *_):
-    return value
-
-
-def default_reify_var(_, substitution):
-    return ReifiedVar(len(substitution))
-
-
-def default_reify_value(value):
-    return value
-
-
-class HooksMeta(type):
-    def _set_hook(cls, name):
-        def update_hooks(hook_function):
-            if not hasattr(cls, name):
-                raise AttributeError(
-                    f"Cannot set unknown hook '{name}' on registry '{cls.__name__}'"
+                head, *tail = cached_results
+                counter, sub = state
+
+                # Produce a new state that is the result of unifying
+                # the secondary call's args with the first cached
+                # result.
+                next_state = State(
+                    counter,
+                    subunify(args, reify_tabled_var(head, sub), sub),
                 )
-            setattr(cls, name, hook_function)
 
-        return update_hooks
+                # Concat the new state with the result of unifying the
+                # secondary call's args with the rest of the cached
+                # results.
+                return mplus(
+                    unit(next_state),
+                    lambda: loop(tail),
+                )
 
-    def __getattribute__(cls, attr):
-        if attr.startswith("set_"):
-            return cls._set_hook(attr[4:])
-        return super().__getattribute__(attr)
+        return loop(start)
+
+    return fix(cache, [])
 
 
-class Hooks(metaclass=HooksMeta):
-    process_prefix: Callable[[Substitution, ConstraintStore], ConstraintFunction] = (
-        default_process_prefix
-    )
-    enforce_constraints: Callable[[Var], GoalProto] = default_enforce_constraints
-    reify_constraints: Callable[[Value, Substitution, State], Any] = (
-        default_reify_constraints
-    )
-    reify_var: Callable[[Var, Substitution], Any] = default_reify_var
-    reify_value: Callable[[Any], Any] = default_reify_value
+def subunify(args, cached_result, sub: Substitution) -> Substitution:
+    args = walk(args, sub)
+    if args == cached_result:
+        return sub
+    elif isinstance(args, Var):
+        return extend_substitution(args, cached_result, sub, occurs_check=False)
+    elif isinstance(args, list | tuple):
+        a, *d = args
+        b, *e = cached_result
+        return subunify(d, e, subunify(a, b, sub))
+    else:
+        return sub
+
+
+def w_check(
+    w: WaitingStream, sk: Callable[[Any], Stream], fk: Callable[[], Stream]
+) -> Stream:
+    # Find the first suspended stream in `w' whose cache contains new
+    # answer terms.
+
+    def loop(w: WaitingStream, a: WaitingStream) -> Stream:
+        if not w:
+            return fk()
+        elif ready_stream(w[0]):
+            # The first suspended is can contribute results. Invoke
+            # its thunk, followed by any remaining suspended streams.
+            head, *tail = w
+            _, _, thunk = head
+            rest_suspended_streams = WaitingStream(a[::-1] + tail)
+            return sk(
+                lambda: thunk()
+                if not w
+                else mplus(thunk(), lambda: rest_suspended_streams)
+            )
+        else:
+            return loop(w[1:], WaitingStream([w[0], *a]))
+
+    return loop(w, WaitingStream())
+
+
+@tabled
+def fives(x):
+    return disj(eq(x, 5), lambda sc: lambda: fives(x)(sc))
