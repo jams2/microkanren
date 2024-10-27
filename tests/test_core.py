@@ -2,8 +2,8 @@ import pytest
 from fastcons import cons, nil
 
 from microkanren import (
-    OccursError,
     SENTINEL,
+    OccursError,
     State,
     Symbol,
     Var,
@@ -14,8 +14,8 @@ from microkanren import (
     mzero,
     pull,
     take,
-    unit,
     unify,
+    unit,
     walk,
 )
 
