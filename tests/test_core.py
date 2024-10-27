@@ -60,58 +60,66 @@ def test_empty_state():
 
 
 def test_unify_basic():
+    """Verify that unification works correctly for basic atomic values."""
     s = empty_sub()
-    # Equal atoms unify
+    # Equal atoms unify.
     assert unify(1, 1, s) == s
     assert unify("a", "a", s) == s
-    # Different atoms don't unify
+    # Different atoms don't unify.
     assert unify(1, 2, s) is SENTINEL
     assert unify("a", "b", s) is SENTINEL
 
 
 def test_unify_var():
+    """Verify that unification works correctly with logic variables."""
     s = empty_sub()
     x = Var(0)
     y = Var(1)
-    # Var unifies with anything
+    # Var unifies with anything.
     assert unify(x, 1, s) == extend_substitution(x, 1, s)
     assert unify(1, x, s) == extend_substitution(x, 1, s)
-    # Two vars unify
+    # Two vars unify.
     assert unify(x, y, s) == extend_substitution(x, y, s)
 
 
 def test_unify_sequences():
+    """Verify that unification works correctly for sequences like tuples and lists."""
     s = empty_sub()
-    # Equal sequences unify
+    # Equal sequences unify.
     assert unify((1, 2), (1, 2), s) == s
     assert unify([1, 2], [1, 2], s) == s
-    # Different sequences don't unify
+    # Different sequences don't unify.
     assert unify((1, 2), (1, 3), s) is SENTINEL
     assert unify([1, 2], [1], s) is SENTINEL
 
 
 def test_mzero_is_empty_stream():
+    """Verify that mzero() returns an empty stream."""
     assert mzero() == ()
 
 
 def test_unit_creates_stream_with_state():
+    """Verify that unit() creates a stream containing a single state followed by an empty stream."""
     state = empty_state()
     assert unit(state) == (state, mzero())
 
 
 def test_pull_evaluates_thunk():
+    """Verify that pull() evaluates a thunk to produce its underlying stream."""
     state = empty_state()
     thunk = lambda: unit(state)
     assert pull(thunk) == unit(state)
 
 
 def test_take_from_unit_stream():
+    """Verify that take() correctly extracts elements from a unit stream."""
     state = empty_state()
-    assert take(1, unit(state)) == [state]
-    assert take(2, unit(state)) == [state]
+    assert take(1, unit(state)) == [state]  # Taking one element returns the state.
+    assert take(2, unit(state)) == [state]  # Taking more elements still returns just the state.
 
 
 def test_take_from_empty_stream():
+    """Verify that take() returns an empty list when given an empty stream."""
     assert take(1, mzero()) == []
 
 
