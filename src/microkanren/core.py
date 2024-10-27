@@ -1,3 +1,4 @@
+from collections import namedtuple
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from functools import partial, reduce, wraps
@@ -12,15 +13,10 @@ from microkanren.utils import foldr, identity
 NOT_FOUND = object()
 
 
-@dataclass(slots=True, frozen=True)
-class Var:
-    i: int
+class Var(namedtuple("Var", ("i",))): ...
 
 
-@dataclass(slots=True, frozen=True)
-class ReifiedVar:
-    i: int
-
+class ReifiedVar(namedtuple("ReifiedVar", ("i",))):
     def __repr__(self):
         return f"_.{self.i}"
 
@@ -67,8 +63,7 @@ class State(PClass):
 
 
 class ConstraintProto(Protocol):
-    def __call__(self, *args: Any) -> ConstraintFunction:
-        ...
+    def __call__(self, *args: Any) -> ConstraintFunction: ...
 
 
 @dataclass(slots=True, frozen=True)
@@ -84,13 +79,11 @@ Stream: TypeAlias = tuple[()] | Callable[[], "Stream"] | tuple[State, "Stream"]
 
 
 class GoalProto(Protocol):
-    def __call__(self, state: State) -> Stream:
-        ...
+    def __call__(self, state: State) -> Stream: ...
 
 
 class GoalConstructorProto(Protocol):
-    def __call__(self, *args: Value) -> GoalProto:
-        ...
+    def __call__(self, *args: Value) -> GoalProto: ...
 
 
 class Goal:
@@ -200,7 +193,7 @@ def unify(u: Value, v: Value, s: Substitution) -> Substitution | None:
             s1 = unify(x, y, s)
             return unify(xs, ys, s1) if s1 is not None else None
         case (_, *_) as xs, (_, *_) as ys if (
-            len(xs) == len(ys) and type(xs) == type(ys)
+            len(xs) == len(ys) and type(xs) is type(ys)
         ):
             for x, y in zip(xs, ys):  # NOQA: B905
                 s = unify(x, y, s)
@@ -619,12 +612,12 @@ class HooksMeta(type):
 
 
 class Hooks(metaclass=HooksMeta):
-    process_prefix: Callable[
-        [Substitution, ConstraintStore], ConstraintFunction
-    ] = default_process_prefix
+    process_prefix: Callable[[Substitution, ConstraintStore], ConstraintFunction] = (
+        default_process_prefix
+    )
     enforce_constraints: Callable[[Var], GoalProto] = default_enforce_constraints
-    reify_constraints: Callable[
-        [Value, Substitution, State], Any
-    ] = default_reify_constraints
+    reify_constraints: Callable[[Value, Substitution, State], Any] = (
+        default_reify_constraints
+    )
     reify_var: Callable[[Var, Substitution], Any] = default_reify_var
     reify_value: Callable[[Any], Any] = default_reify_value
