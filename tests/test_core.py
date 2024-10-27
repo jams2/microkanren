@@ -90,18 +90,28 @@ def test_unify_sequences():
     assert unify([1, 2], [1], s) is SENTINEL
 
 
-def test_stream_operations():
-    state = empty_state()
-    # Empty stream
+def test_mzero_is_empty_stream():
     assert mzero() == ()
-    # Unit stream
+
+
+def test_unit_creates_stream_with_state():
+    state = empty_state()
     assert unit(state) == (state, mzero())
-    # Pull thunk
+
+
+def test_pull_evaluates_thunk():
+    state = empty_state()
     thunk = lambda: unit(state)
     assert pull(thunk) == unit(state)
-    # Take from stream
+
+
+def test_take_from_unit_stream():
+    state = empty_state()
     assert take(1, unit(state)) == [state]
     assert take(2, unit(state)) == [state]
+
+
+def test_take_from_empty_stream():
     assert take(1, mzero()) == []
 
 
