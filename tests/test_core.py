@@ -3,6 +3,8 @@ from fastcons import cons, nil
 
 from microkanren import (
     OccursError,
+    SENTINEL,
+    State,
     Symbol,
     Var,
     empty_state,
