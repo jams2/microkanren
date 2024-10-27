@@ -123,6 +123,20 @@ def test_take_from_empty_stream():
     assert take(1, mzero()) == []
 
 
+def test_unify_var_with_incompatible_nested_sequence():
+    """
+    Unify sequences where one contains a variable and the other contains a sequence that should not unify.
+    """
+    s = empty_sub()
+    x = Var(0)
+
+    # Unify tuple containing var with tuple containing incompatible nested tuple
+    assert unify((1, x, 3), (1, (2, 3), 3), s) is SENTINEL
+
+    # Unify list containing var with list containing incompatible nested list
+    assert unify([1, x, 3], [1, [2, 3], 3], s) is SENTINEL
+
+
 def test_mplus():
     state = empty_state()
     s1 = unit(state)
