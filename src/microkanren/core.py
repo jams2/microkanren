@@ -253,6 +253,10 @@ def unify(u: Any, v: Any, s: Substitution) -> Substitution | Sentinel:
 
 
 def call_fresh(f: Callable[[Var], Goal]) -> Goal:
+    """
+    Return a goal that calls `f' (a goal constructor) with a fresh logic variable.
+    """
+
     def _goal(state: State) -> Stream:
         i, sub = state
         return f(Var(i))(State(i + 1, sub))
@@ -409,6 +413,7 @@ def tabled(gc: GoalConstructor) -> GoalConstructor:
 
         return tabled_goal
 
+    tabled_gc._table = table
     return tabled_gc
 
 
