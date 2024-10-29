@@ -22,12 +22,14 @@ from microkanren import (
 
 def test_extend_substitution():
     val = object()
-    s = extend_substitution(Var(0), val, empty_sub())
-    assert walk(Var(0), s) is val
+    x = Var("x")
+    s = extend_substitution(x, val, empty_sub())
+    assert walk(x, s) is val
 
 
 def test_walk_unbound_var():
-    assert walk(Var(0), empty_sub()) == Var(0)
+    x = Var("x")
+    assert walk(x, empty_sub()) == x
 
 
 def test_walk_unbound_value():
@@ -36,10 +38,9 @@ def test_walk_unbound_value():
 
 def test_recursive_walk():
     val = object()
-    s = extend_substitution(
-        Var(0), Var(1), extend_substitution(Var(1), val, empty_sub())
-    )
-    assert walk(Var(0), s) is val
+    x, y = Var("x"), Var("y")
+    s = extend_substitution(x, y, extend_substitution(y, val, empty_sub()))
+    assert walk(x, s) is val
 
 
 def test_symbol_equality():
@@ -55,7 +56,6 @@ def test_symbol_equality():
 
 def test_empty_state():
     state = empty_state()
-    assert state.counter == 0
     assert state.sub == empty_sub()
 
 
@@ -77,12 +77,12 @@ def test_unify_var():
     Unification works correctly with logic variables.
     """
     s = empty_sub()
-    x = Var(0)
-    y = Var(1)
+    x = Var("x")
+    y = Var("y")
     # Var unifies with anything.
     assert unify(x, 1, s) == extend_substitution(x, 1, s)
     assert unify(1, x, s) == extend_substitution(x, 1, s)
-    # Two vars unify.
+    # Two distinct, fresh vars unify.
     assert unify(x, y, s) == extend_substitution(x, y, s)
 
 
@@ -156,14 +156,17 @@ def test_mplus():
 @pytest.mark.parametrize(
     "val",
     [
-        Var(0),
-        cons(Var(0), nil()),
-        (Var(0), Var(0)),
-        [Var(0)],
-        [[Var(0)]],
-        ([Var(0)],),
+        Var("x", _id=0),
+        cons(Var("x", _id=0), nil()),
+        cons(nil(), Var("x", _id=0)),
+        (Var("x", _id=0), Var("x", _id=0)),
+        ("foo", Var("x", _id=0)),
+        [Var("x", _id=0)],
+        [0, Var("x", _id=0)],
+        [[Var("x", _id=0)]],
+        ([Var("x", _id=0)],),
     ],
 )
 def test_occurs_check_raises(val):
     with pytest.raises(OccursError):
-        extend_substitution(Var(0), val, empty_sub())
+        extend_substitution(Var("x", _id=0), val, empty_sub())
