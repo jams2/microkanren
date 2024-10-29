@@ -30,6 +30,10 @@ license = {file = "LICENSE"}
 build = ["hatch == 1.7.0"]
 hy = [
     "hy>=1.0.0",
+    "hyrule>=0.7.0",
+]
+debug = [
+    "debugpy>=1.8.7",
 ]
 
 [build-system]
@@ -39,9 +43,14 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 minversion = 7.0
+python_functions=[
+    "test_*",
+    "hyx_test_*",
+]
 filterwarnings = [
     "ignore:ast.NameConstant is deprecated:DeprecationWarning",
     "ignore:ast.Str is deprecated:DeprecationWarning",
+    "ignore::pytest.PytestReturnNotNoneWarning",
 ]
 
 [tool.ruff]
@@ -85,6 +94,7 @@ lines-after-imports = 2
 [tool.pyright]
 pythonVersion = "3.12"
 stubPath = ""
+reportFunctionMemberAccess = "warning"
 
 [tool.uv]
 dev-dependencies = [

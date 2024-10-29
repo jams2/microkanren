@@ -113,6 +113,19 @@ wheels = [
 ]
 
 [[package]]
+name = "debugpy"
+version = "1.8.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/00/5a8b5dc8f52617c5e41845e26290ebea1ba06377cc08155b6d245c27b386/debugpy-1.8.7.zip", hash = "sha256:18b8f731ed3e2e1df8e9cdaa23fb1fc9c24e570cd0081625308ec51c82efe42e", size = 4957835 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/59/4b/9f52ca1a799601a10cd2673503658bd8c8ecc4a7a43302ee29cf062474ec/debugpy-1.8.7-cp312-cp312-macosx_14_0_universal2.whl", hash = "sha256:4d27d842311353ede0ad572600c62e4bcd74f458ee01ab0dd3a1a4457e7e3706", size = 2529803 },
+    { url = "https://files.pythonhosted.org/packages/80/79/8bba39190d2ea17840925d287f1c6c3a7c60b58f5090444e9ecf176c540f/debugpy-1.8.7-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:703c1fd62ae0356e194f3e7b7a92acd931f71fe81c4b3be2c17a7b8a4b546ec2", size = 4170911 },
+    { url = "https://files.pythonhosted.org/packages/3b/19/5b3d312936db8eb281310fa27903459328ed722d845d594ba5feaeb2f0b3/debugpy-1.8.7-cp312-cp312-win32.whl", hash = "sha256:2f729228430ef191c1e4df72a75ac94e9bf77413ce5f3f900018712c9da0aaca", size = 5195476 },
+    { url = "https://files.pythonhosted.org/packages/9f/49/ad20b29f8c921fd5124530d3d39b8f2077efd51b71339a2eff02bba693e9/debugpy-1.8.7-cp312-cp312-win_amd64.whl", hash = "sha256:45c30aaefb3e1975e8a0258f5bbd26cd40cde9bfe71e9e5a7ac82e79bad64e39", size = 5235031 },
+    { url = "https://files.pythonhosted.org/packages/51/b1/a0866521c71a6ae3d3ca320e74835163a4671b1367ba360a55a0a51e5a91/debugpy-1.8.7-py2.py3-none-any.whl", hash = "sha256:57b00de1c8d2c84a61b90880f7e5b6deaf4c312ecbde3a0e8912f2a56c4ac9ae", size = 5210683 },
+]
+
+[[package]]
 name = "distlib"
 version = "0.3.9"
 source = { registry = "https://pypi.org/simple" }
@@ -261,6 +274,15 @@ wheels = [
 ]
 
 [[package]]
+name = "hyrule"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/59/f6/55dbed29f7b16b393d5aba61bd69762cc836089e1ff922779b09f7dd8827/hyrule-0.7.0.tar.gz", hash = "sha256:3a4b3568abfe16d16895e584c0db84c1251d258fe234ba86f072906b90545ce8", size = 32955 }
+
+[[package]]
 name = "idna"
 version = "3.10"
 source = { registry = "https://pypi.org/simple" }
@@ -388,8 +410,12 @@ dependencies = [
 build = [
     { name = "hatch" },
 ]
+debug = [
+    { name = "debugpy" },
+]
 hy = [
     { name = "hy" },
+    { name = "hyrule" },
 ]
 
 [package.dependency-groups]
@@ -403,9 +429,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "debugpy", marker = "extra == 'debug'", specifier = ">=1.8.7" },
     { name = "fastcons", specifier = "==0.4.1" },
     { name = "hatch", marker = "extra == 'build'", specifier = "==1.7.0" },
     { name = "hy", marker = "extra == 'hy'", specifier = ">=1.0.0" },
+    { name = "hyrule", marker = "extra == 'hy'", specifier = ">=0.7.0" },
     { name = "immutables", specifier = ">=0.19,<1" },
     { name = "pyrsistent", specifier = ">=0.19,<1" },
 ]
