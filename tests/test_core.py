@@ -86,17 +86,25 @@ def test_unify_var():
     assert unify(x, y, s) == extend_substitution(x, y, s)
 
 
-def test_unify_sequences():
+@pytest.mark.parametrize(
+    ("seq1", "seq2", "expected"),
+    [
+        # Equal sequences unify
+        ((1, 2), (1, 2), empty_sub()),
+        ([1, 2], [1, 2], empty_sub()),
+        (cons(1, cons(2, nil())), cons(1, cons(2, nil())), empty_sub()),
+        # Different sequences don't unify
+        ((1, 2), (1, 3), SENTINEL),
+        ([1, 2], [1], SENTINEL),
+        (cons(1, cons(2, nil())), cons(1, nil()), SENTINEL),
+    ],
+)
+def test_unify_sequences(seq1, seq2, expected):
     """
-    Unification works correctly for sequences like tuples and lists.
+    Unification works correctly for sequences like tuples, lists, and cons pairs.
     """
     s = empty_sub()
-    # Equal sequences unify.
-    assert unify((1, 2), (1, 2), s) == s
-    assert unify([1, 2], [1, 2], s) == s
-    # Different sequences don't unify.
-    assert unify((1, 2), (1, 3), s) is SENTINEL
-    assert unify([1, 2], [1], s) is SENTINEL
+    assert unify(seq1, seq2, s) == expected
 
 
 def test_mzero_is_empty_stream():
