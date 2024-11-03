@@ -136,14 +136,14 @@ wheels = [
 
 [[package]]
 name = "fastcons"
-version = "0.4.1"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/94/f4947083d04781447a14210def1040d509287383a5fc106a0a29fff0d86c/fastcons-0.4.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:bbd3475bbc1aaee8fab59bab086a418a05853e6ed84c7c9870f545ddfae164e7", size = 10873 },
-    { url = "https://files.pythonhosted.org/packages/76/18/5735a6d5a533f1049d3694df62f2284381b1577335b20e9a69ee671ee2a1/fastcons-0.4.1-cp312-cp312-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:634fb6950e7f26d38d7ca31dd020ed9a6ee0e308f5aeab43eb0b5e9d9ecfdf07", size = 33790 },
-    { url = "https://files.pythonhosted.org/packages/ae/65/961951bba7fa910e345d6dde319924d26e5b4b7a7e6058cbd1e109bf5f5c/fastcons-0.4.1-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bbd2c8e462001c7bc545965303b88c9ce693211a00edfea8a0cd17b0f1b6079b", size = 36351 },
-    { url = "https://files.pythonhosted.org/packages/42/15/bfcaadd7e6498f1aa515935aca7a0c0ee2f07c8702f34a1cfd0dddce2a4c/fastcons-0.4.1-cp312-cp312-musllinux_1_1_i686.whl", hash = "sha256:e83b81be03032f66617f9cfc1c21c38981f8767ced8df9781e1f93ecd31076be", size = 36860 },
-    { url = "https://files.pythonhosted.org/packages/c4/47/ffc7868cfc321b086762e75ce175a3eae7a820813c3d3737b04e0fc04f03/fastcons-0.4.1-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:9209403ade04ea8757faf36d2a5db0db4092b853830627e950d9897ad28e9cf7", size = 38916 },
+    { url = "https://files.pythonhosted.org/packages/63/57/eafd1c55d5af2adcef889400d7350aff2f5235bb9429474ce772c50c4d6e/fastcons-0.5.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:fdcef9400059696946a9262b6dc2b78675de1754eba4ade47a4019f148e2a27f", size = 11460 },
+    { url = "https://files.pythonhosted.org/packages/a5/bf/704243be945ca6f343a94dfc75fd7fafa87316dc2ece9d50e9afbe6f26b4/fastcons-0.5.0-cp312-cp312-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:905dcae823ddc5b4d7841baf4aeb3bb78f3ab1ac6c3669740411983e7d50aaa6", size = 34263 },
+    { url = "https://files.pythonhosted.org/packages/95/65/0276857a8fe8d449278e339f4f20ee48e7314867519eaf5ed0f27b6270da/fastcons-0.5.0-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6a69d20f6b9b7f89798b0e92e6c6bd7e7d38d2624c5d0d9226ca2d5f2ad97964", size = 36974 },
+    { url = "https://files.pythonhosted.org/packages/70/2b/d73bef709d7066c182bf8c022ad741949a71f97c96d14397835ae619b985/fastcons-0.5.0-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:2daf9037f7b4b77434756193f48c86e02810ecde7e495f98f52e989f7f03d5c2", size = 33472 },
+    { url = "https://files.pythonhosted.org/packages/76/33/4c391d66999215b031161ce6aeec23732884113edee7ccbe47df80ec81c8/fastcons-0.5.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:208efb6dc1324dceafc74fbd85c3ece4fe001de6353a0298ba1d55ee6a99748c", size = 35476 },
 ]
 
 [[package]]
@@ -430,7 +430,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "debugpy", marker = "extra == 'debug'", specifier = ">=1.8.7" },
-    { name = "fastcons", specifier = "==0.4.1" },
+    { name = "fastcons", specifier = "==0.5.0" },
     { name = "hatch", marker = "extra == 'build'", specifier = "==1.7.0" },
     { name = "hy", marker = "extra == 'hy'", specifier = ">=1.0.0" },
     { name = "hyrule", marker = "extra == 'hy'", specifier = ">=0.7.0" },
