@@ -2,5 +2,5 @@
 (import microkanren.lang *)
 
 (defn test-run*-eq []
-  (assert (= (run* [q] (== q 5) )
+  (assert (= (run* [q] (== q 5))
              [#(5)])))

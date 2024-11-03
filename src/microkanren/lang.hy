@@ -33,8 +33,11 @@
   `(fresh ~lvars (&& #* goals)))
 
 (defmacro run [n lvars #* goals]
-  `(lfor state (core.take ~n ((fresh ~lvars ~@goals)(core.empty-state)))
-         (core.reify (tuple (gfor i (range ~(len lvars)) (core.Var i))) state.sub)))
+  `(lfor
+     x
+     (core.take ~n ((fresh ~lvars ~@goals (fn [s] (core.unit (core.reify ~(tuple lvars) s.sub))))
+                     (core.empty-state)))
+     x))
 
 (defmacro run* [lvars #* goals]
   (hy.macroexpand `(run -1 ~lvars ~@goals)))
