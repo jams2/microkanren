@@ -162,8 +162,11 @@ def test_tabled_with_multiple_vars():
     def goal(x, y):
         return conj(eq(x, 1), eq(y, 2))
 
-    call_fresh(lambda x: call_fresh(lambda y: goal(x, y)))(empty_state())
+    x, y = Var(0), Var(1)
+    goal(x, y)(empty_state())
+
     assert len(goal._table) == 1
+    assert goal._table[(Symbol("_.0"), Symbol("_.1"))] == [(1, 2)]
 
 
 def test_tabled_alpha_equivalence():
@@ -175,8 +178,16 @@ def test_tabled_alpha_equivalence():
     def goal(x, y):
         return eq(x, y)
 
+    a, b, x, y = Var("a"), Var("b"), Var("x"), Var("y")
+
     # These calls should be considered equivalent
-    conj(goal(Var(0), Var(1)), goal(Var(2), Var(3)))(empty_state())
+    result = take(
+        5,
+        conj(goal(a, b), goal(x, y))(empty_state()),
+    )
+    r1 = [reify((a, b), state.sub) for state in result]
+    r2 = [reify((x, y), state.sub) for state in result]
+    assert r1 == r2
 
     # Should use same cache entry
     assert len(goal._table) == 1

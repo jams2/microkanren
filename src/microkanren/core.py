@@ -356,7 +356,7 @@ def reify_symbol(i: int) -> Symbol:
 
 
 def make_reify(representation):
-    def reify(v: Var, s: Substitution):
+    def reify(v: Any, s: Substitution):
         v = deep_walk(v, s)
         return deep_walk(v, reify_sub(representation, v, empty_sub()))
 
