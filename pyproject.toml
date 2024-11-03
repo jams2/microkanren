@@ -27,12 +27,16 @@ license = {file = "LICENSE"}
 "Bug Tracker" = "https://github.com/jams2/microkanren/issues"
 
 [project.optional-dependencies]
-build = ["hatch == 1.7.0"]
 hy = [
     "hy>=1.0.0",
     "hyrule>=0.7.0",
 ]
-debug = [
+dev = [
+    "hatch == 1.7.0",
+    "ruff>=0.7.1",
+    "pyright>=1.1.377",
+    "tox==4.11.3",
+    "pytest==7.2.2",
     "debugpy>=1.8.7",
 ]
 
@@ -97,10 +101,4 @@ stubPath = ""
 reportFunctionMemberAccess = "warning"
 
 [tool.uv]
-dev-dependencies = [
-    "ruff>=0.7.1",
-    "pyright>=1.1.377",
-    "tox==4.11.3",
-    "pytest==7.2.2",
-    "pytest-profiling==1.7.0",
-]
+dev-dependencies = []
