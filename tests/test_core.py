@@ -155,10 +155,10 @@ def test_take_from_empty_stream():
 def test_mplus():
     state = empty_state()
     s1 = unit(state)
-    s2 = unit(State(1, empty_sub()))
+    s2 = unit(State(empty_sub()))
     # Combine two streams
     combined = mplus(s1, s2)
-    assert take(2, combined) == [state, State(1, empty_sub())]
+    assert take(2, combined) == [state, State(empty_sub())]
 
 
 @pytest.mark.parametrize(

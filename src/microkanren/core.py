@@ -1,3 +1,4 @@
+import itertools
 from collections.abc import Callable
 from functools import reduce
 from typing import (
@@ -13,6 +14,10 @@ from typing import (
 import immutables
 from fastcons import cons
 
+# We could rely on Var object identity, but this might make tests
+# simpler.
+_COUNTER = itertools.count()
+
 
 class OccursError(Exception): ...
 
@@ -24,33 +29,27 @@ SENTINEL = Sentinel()
 
 
 class Var:
-    i: int
-    _cache: ClassVar[dict[int, Self] | None] = None
-    __match_args__ = ("i",)
+    name: str
+    _id: int
+    __match_args__ = ("name",)
 
-    def __new__(cls, i) -> Self:
-        if (cache := cls._cache) is None:
-            cache = {}
-            cls._cache = cache
-
-        if i in cache:
-            return cache[i]
-
-        instance = super().__new__(cls)
-        cache[i] = instance
-        return instance
-
-    def __init__(self, i: int):
-        self.i = i
+    def __init__(self, name: str | int, _id: int | None = None):
+        self.name = str(name)
+        self._id = next(_COUNTER) if _id is None else _id
 
     def __repr__(self) -> str:
-        return f"Var({self.i})"
+        return f"Var({self.name})"
+
+    def __str__(self) -> str:
+        return f"?{self.name}"
 
     def __hash__(self):
-        return hash((self.__class__, self.i))
+        return hash((self.__class__, self._id))
 
     def __eq__(self, other):
-        return other is self
+        if not isinstance(other, self.__class__):
+            return False
+        return self._id == other._id
 
 
 class Symbol:
@@ -93,7 +92,6 @@ def empty_sub() -> Substitution:
 
 
 class State(NamedTuple):
-    counter: int
     sub: Substitution
 
 
@@ -158,7 +156,7 @@ def empty(stream: Stream):
 
 
 def empty_state():
-    return State(0, empty_sub())
+    return State(empty_sub())
 
 
 def walk(candidate: Any, sub: Substitution) -> Any:
@@ -178,6 +176,8 @@ def deep_walk(candidate: Any, sub: Substitution) -> Any:
     if isinstance(candidate, list | tuple):
         container = type(candidate)
         return container(deep_walk(x, sub) for x in candidate)
+    elif isinstance(candidate, cons):
+        return cons(deep_walk(candidate.head, sub), deep_walk(candidate.tail, sub))
     else:
         return candidate
 
@@ -222,7 +222,7 @@ def eq(u: Any, v: Any) -> Goal:
         maybe_sub: Substitution | Sentinel = unify(u, v, state.sub)
         if isinstance(maybe_sub, Sentinel):
             return mzero()
-        return unit(State(state.counter, maybe_sub))
+        return unit(State(maybe_sub))
 
     return _eq
 
@@ -258,8 +258,7 @@ def call_fresh(f: Callable[[Var], Goal]) -> Goal:
     """
 
     def _goal(state: State) -> Stream:
-        i, sub = state
-        return f(Var(i))(State(i + 1, sub))
+        return f(Var(f.__code__.co_varnames[0]))(state)
 
     return _goal
 
@@ -357,7 +356,7 @@ def reify_symbol(i: int) -> Symbol:
 
 
 def make_reify(representation):
-    def reify(v, s):
+    def reify(v: Var, s: Substitution):
         v = deep_walk(v, s)
         return deep_walk(v, reify_sub(representation, v, empty_sub()))
 
@@ -374,15 +373,14 @@ def reify_sub(representation: Callable, v: Any, sub: Substitution) -> Substituti
         return sub
 
 
-# Reify unbound logic variables as Symbols
+# Reify unbound logic variables as Symbols.
 reify = make_reify(reify_symbol)
 
-# Reify unbound logic variables as fresh logic variables
+# Reify unbound logic variables as fresh logic variables.
 reify_var = make_reify(Var)
 
-# Reify as like reify_var, but transform i with f(i) = -(1+i). This
-# prevents circular mappings (e.g. {Var(0) → Var(0)}).
-reify_tabled_var = make_reify(lambda i: Var(-(1 + i)))
+# Apparently like Prolog's copy_term/2.
+reify_tabled_var = make_reify(lambda i: Var(str(i)))
 
 
 ### Tabling
@@ -419,7 +417,7 @@ def tabled(gc: GoalConstructor) -> GoalConstructor:
 
 def primary_tabled_call(args: tuple, cache: TableCache) -> Goal:
     def _goal(state: State) -> Stream:
-        _, sub = state
+        (sub,) = state
         reified_args = reify(args, sub)
 
         # Check if the result is alpha-equivalent to any previous cached result.
@@ -452,13 +450,12 @@ def reuse_tabled_results(args: tuple, cache: TableCache, state: State) -> Stream
                 )
             else:
                 head, *tail = cached_results
-                counter, sub = state
+                (sub,) = state
 
                 # Produce a new state that is the result of unifying
                 # the secondary call's args with the first cached
                 # result.
                 next_state = State(
-                    counter,
                     subunify(args, reify_tabled_var(head, sub), sub),
                 )
 
