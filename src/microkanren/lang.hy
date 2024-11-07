@@ -1,6 +1,5 @@
 (import microkanren [core])
 (import hy)
-(require hyrule.destructure [setv+])
 
 (setv call/fresh core.call-fresh)
 (setv == core.eq)
@@ -41,17 +40,3 @@
 
 (defmacro run* [lvars #* goals]
   (hy.macroexpand `(run -1 ~lvars ~@goals)))
-
-(defmacro defne [name args #* body]
-  "Accept list patterns only, that match the arity of `args'."
-  `(defn ~name ~args
-     (disj+
-       ~@(map (fn [case]
-                (when (not (isinstance case hy.models.Expression))
-                  (raise (ValueError "defne case must be a hy.models.Expression")))
-                (when (not case)
-                  (raise (ValueError "defne case must be non-empty")))
-                (setv+ [head rest] case)
-                (print (type head))
-                `(~head ~@rest))
-              body))))
