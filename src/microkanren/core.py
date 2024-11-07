@@ -258,7 +258,10 @@ def call_fresh(f: Callable[[Var], Goal]) -> Goal:
     """
 
     def _goal(state: State) -> Stream:
-        return f(Var(f.__code__.co_varnames[0]))(state)
+        # If the goal constructor was tabled, get the actual goal
+        # constructor function so the var name is relevant.
+        actual_gc = getattr(f, "__wrapped_goal_constructor__", f)
+        return f(Var(actual_gc.__code__.co_varnames[0]))(state)
 
     return _goal
 
@@ -412,6 +415,7 @@ def tabled(gc: GoalConstructor) -> GoalConstructor:
         return tabled_goal
 
     tabled_gc._table = table
+    tabled_gc.__wrapped_goal_constructor__ = gc
     return tabled_gc
 
 
