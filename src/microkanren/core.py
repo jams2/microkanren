@@ -504,7 +504,7 @@ def w_check(
             # its thunk, followed by any remaining suspended streams.
             head, *tail = w
             _, _, thunk = head
-            rest_suspended_streams = WaitingStream(a[::-1] + tail)
+            rest_suspended_streams = a[::-1] + tail
             return sk(
                 lambda: thunk()
                 if not w

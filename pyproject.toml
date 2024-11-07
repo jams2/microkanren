@@ -98,7 +98,7 @@ lines-after-imports = 2
 [tool.pyright]
 pythonVersion = "3.12"
 stubPath = ""
-reportFunctionMemberAccess = "warning"
+reportFunctionMemberAccess = false
 
 [tool.uv]
 dev-dependencies = []

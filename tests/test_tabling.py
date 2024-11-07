@@ -1,6 +1,8 @@
+import pytest
 from fastcons import cons
 
 from microkanren.core import (
+    OccursError,
     State,
     Symbol,
     Var,
@@ -98,12 +100,14 @@ def test_recursive_tabled_goal():
     """
 
     @tabled
-    def fives(x):
-        return disj(eq(x, 5), lambda s: fives(x)(s))
+    def goal(x):
+        return disj(
+            eq(x, 5),
+            lambda s: lambda: goal(x)(s),
+        )
 
-    result = call_fresh(fives)(empty_state())
-    # Should only return one result (5) instead of infinitely recurring
-    assert len(take(5, result)) == 1
+    result = take(5, call_fresh(goal)(empty_state()))
+    assert len(result) == 1
 
 
 def test_mutual_recursion_tabled():
@@ -191,3 +195,52 @@ def test_tabled_alpha_equivalence():
 
     # Should use same cache entry
     assert len(goal._table) == 1
+
+
+def test_tabled_with_cyclic_terms():
+    """
+    Test tabling behavior with cyclic terms.
+    """
+
+    @tabled
+    def goal(x):
+        return eq(x, cons(1, x))  # Creates a cyclic term
+
+    with pytest.raises(OccursError):
+        take(1, call_fresh(goal)(empty_state()))
+
+
+def test_tabled_with_empty_results():
+    """
+    Test tabling behavior when goal produces no results.
+    """
+
+    @tabled
+    def goal(x):
+        return conj(eq(x, 1), eq(x, 2))  # Will never succeed
+
+    result = call_fresh(goal)(empty_state())
+    assert take(1, result) == []
+    assert goal._table[(Symbol("_.0"),)] == []
+
+
+def test_tabled_reuse_with_different_var_names():
+    """
+    Test that tabling works correctly when reusing results with differently named vars.
+    """
+
+    @tabled
+    def goal(x, y):
+        return conj(eq(x, 1), eq(y, x))
+
+    # First call with vars a, b
+    a, b = Var("a"), Var("b")
+    r1 = take(1, goal(a, b)(empty_state()))
+
+    # Second call with vars x, y
+    x, y = Var("x"), Var("y")
+    r2 = take(1, goal(x, y)(empty_state()))
+
+    # Results should be equivalent after reification
+    assert reify((a, b), r1[0].sub) == reify((x, y), r2[0].sub)
+    assert len(goal._table) == 1  # Should reuse same cache entry
