@@ -55,6 +55,51 @@ Relations can be tabled, using the `tabled` decorator to improve performance, an
        (path° z y))]))
 ```
 
+## Tutorial: Building a Pizza Recommendation System
+
+Let's build a simple pizza recommendation system to demonstrate how relational programming works:
+
+```clojure
+(require microkanren.lang *)
+(import microkanren.lang *)
+
+;; Define our pizza database
+(defn likes° [person topping]
+  (conde
+    [(== person 'alice) (== topping 'mushroom)]
+    [(== person 'alice) (== topping 'olive)]
+    [(== person 'bob) (== topping 'pepper)]
+    [(== person 'bob) (== topping 'mushroom)]))
+
+;; Find toppings that both people like
+(defn common-topping° [p1 p2 topping]
+  (fresh []
+    (likes° p1 topping)
+    (likes° p2 topping)))
+
+;; Query examples:
+;; What does Alice like?
+(run* [q]
+  (likes° 'alice q))
+;; => [#(mushroom) #(olive)]
+
+;; Who likes mushrooms?
+(run* [q]
+  (likes° q 'mushroom))
+;; => [#(alice) #(bob)]
+
+;; What toppings do Alice and Bob have in common?
+(run* [q]
+  (common-topping° 'alice 'bob q))
+;; => [#(mushroom)]
+```
+
+This example shows how to:
+1. Define facts using `conde` for alternatives
+2. Create relations between entities (people and toppings)
+3. Compose relations to find common preferences
+4. Query the system in different ways
+
 ## Python Core API
 
 The core implementation is available in `microkanren.core` for direct use from Python:
@@ -69,7 +114,7 @@ goal = eq("x", "x")
 stream = goal(empty_state())
 
 # Process results
-state = next(stream)
+five_states = take(5, stream)
 ```
 
 ## Developing microkanren
