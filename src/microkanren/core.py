@@ -217,6 +217,10 @@ def mzero() -> EmptyStream:
     return ()
 
 
+def fail(_: State) -> EmptyStream:
+    return mzero()
+
+
 def eq(u: Any, v: Any) -> Goal:
     def _eq(state: State) -> EmptyStream | ReadyStream:
         maybe_sub: Substitution | Sentinel = unify(u, v, state.sub)

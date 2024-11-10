@@ -28,7 +28,8 @@ license = {file = "LICENSE"}
 
 [project.optional-dependencies]
 hy = [
-    "hy>=1.0.0",
+    "hy>=1.0.0,<2.0.0",
+    "hyrule>=0.7.0,<1.0.0",
 ]
 dev = [
     "hatch == 1.7.0",

@@ -92,9 +92,10 @@
     (conde
       [(== x y)]
       [(fresh [x1 y1]
-         ;; Eventually diverges without tabling, as the first conde
-         ;; case keeps succeeding, then we try the alt, recur,
-         ;; succeed, recur, succeed, etc.
+         ;; Eventually diverges without tabling, due to the ordering
+         ;; of these sub-goals — same-generation° with fresh vars
+         ;; keeps recurring and calling the same sub-goal again and
+         ;; again.
          (same-generation° x1 y1)
          (parent° x x1)
          (parent° y y1))]))
