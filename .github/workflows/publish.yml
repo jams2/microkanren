@@ -14,15 +14,18 @@ jobs:
       id-token: write # required for trusted publishing
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.11
-          cache: 'pip'
+          python-version: 3.12
       - name: Install dependencies
-        run: pip install .[build]
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          uv venv
+          uv sync --extra=dev
       - name: Build package
-        run: hatch build
+        run: uv build
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

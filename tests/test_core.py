@@ -1,115 +1,180 @@
+import pytest
 from fastcons import cons, nil
-from pyrsistent import pmap
 
 from microkanren import (
-    ReifiedVar,
+    SENTINEL,
+    OccursError,
+    State,
+    Symbol,
     Var,
-    disj,
+    empty_state,
     empty_sub,
-    eq,
     extend_substitution,
-    fresh,
-    get_sub_prefix,
-    run,
-    run_all,
-    snooze,
+    mplus,
+    mzero,
+    pull,
+    take,
+    unify,
+    unit,
     walk,
 )
-from microkanren.goals import appendo
-from microkanren.utils import _
 
 
-class TestSubstitution:
-    def test_extend_substitution(self):
-        val = object()
-        s = extend_substitution(Var(0), val, empty_sub())
-        assert walk(Var(0), s) is val
-
-    def test_walk_self(self):
-        assert walk(Var(0), empty_sub()) == Var(0)
-
-    def test_walk_constant(self):
-        assert walk("foo", empty_sub()) == "foo"
-
-    def test_recursive_walk(self):
-        val = object()
-        s = extend_substitution(
-            Var(0), Var(1), extend_substitution(Var(1), val, empty_sub())
-        )
-        assert walk(Var(0), s) is val
-
-    def test_get_sub_prefix(self):
-        x = object()
-        initial = empty_sub()
-        a = extend_substitution(Var(0), 1, initial)
-        b = extend_substitution(
-            Var(2),
-            x,
-            extend_substitution(Var(1), Var(2), a),
-        )
-        assert set(get_sub_prefix(b, a).items()) == set(
-            pmap({Var(1): Var(2), Var(2): x}).items()
-        )
+def test_extend_substitution():
+    val = object()
+    x = Var("x")
+    s = extend_substitution(x, val, empty_sub())
+    assert walk(x, s) is val
 
 
-class TestEq:
-    def test_simple_eq(self):
-        result = run_all(lambda x: eq(x, 1))
-        assert result == [1]
+def test_walk_unbound_var():
+    x = Var("x")
+    assert walk(x, empty_sub()) == x
 
 
-def fives(x):
-    return eq(x, 5) | snooze(fives, x)
+def test_walk_unbound_value():
+    assert walk("foo", empty_sub()) == "foo"
 
 
-def sixes(x):
-    return eq(x, 6) | snooze(sixes, x)
+def test_recursive_walk():
+    val = object()
+    x, y = Var("x"), Var("y")
+    s = extend_substitution(x, y, extend_substitution(y, val, empty_sub()))
+    assert walk(x, s) is val
 
 
-def test_snooze():
-    result = run(3, lambda x: fives(x))
-    assert result == [5, 5, 5]
-
-    result = run(8, lambda x: fives(x) | sixes(x))
-    assert result == [5, 6, 5, 6, 5, 6, 5, 6]
-
-
-def test_recursion():
-    # Check we don't blow python's stack
-    assert len(run(10000, lambda x: fives(x))) == 10000
+def test_symbol_equality():
+    s1 = Symbol("test")
+    s2 = Symbol("test")
+    s3 = Symbol("other")
+    assert s1 is s2  # Same symbols are identical
+    assert s1 == s2  # Same symbols are equal
+    assert s1 != s3  # Different symbols are not equal
+    assert str(s1) == "test"
+    assert repr(s1) == "test"
 
 
-def test_disj_interleaving():
-    # Test that the order of results matches examples from the miniKanren paper
-
-    def function_disj_relation(x):
-        return disj(eq(x, 1), eq(x, 2), eq(x, 3), snooze(function_disj_relation, x))
-
-    assert run(6, lambda x: function_disj_relation(x)) == [1, 2, 3, 1, 2, 3]
-
-    def operator_disj_relation(x):
-        return eq(x, 1) | eq(x, 2) | eq(x, 3) | snooze(operator_disj_relation, x)
-
-    assert run(6, lambda x: function_disj_relation(x)) == [1, 2, 3, 1, 2, 3]
-
-    def patho(x, y):
-        return arco(x, y) | fresh(lambda z: arco(x, z) & patho(z, y))
-
-    def arco(x, y):
-        return disj(
-            eq("a", x) & eq("b", y),
-            eq("b", x) & eq("a", y),
-            eq("b", x) & eq("d", y),
-        )
-
-    assert "".join(run(9, lambda x: patho("a", x))) == "badbadbad"
+def test_empty_state():
+    state = empty_state()
+    assert state.sub == empty_sub()
 
 
-def test_vars_reified_correctly():
-    # Test the reification of fresh variables matches a known example (appendo)
+def test_unify_basic():
+    """
+    Unification works correctly for basic atomic values.
+    """
+    s = empty_sub()
+    # Equal atoms unify.
+    assert unify(1, 1, s) == s
+    assert unify("a", "a", s) == s
+    # Different atoms don't unify.
+    assert unify(1, 2, s) is SENTINEL
+    assert unify("a", "b", s) is SENTINEL
 
-    R = ReifiedVar
-    result = run(3, lambda x, y, z: appendo(x, y, z))
-    assert result[0] == (nil(), R(0), R(0))
-    assert result[1] == (_(R(0)), R(1), cons(R(0), R(1)))
-    assert result[2] == (_(R(0), R(1)), R(2), cons(R(0), cons(R(1), R(2))))
+
+def test_unify_var():
+    """
+    Unification works correctly with logic variables.
+    """
+    s = empty_sub()
+    x = Var("x")
+    y = Var("y")
+    # Var unifies with anything.
+    assert unify(x, 1, s) == extend_substitution(x, 1, s)
+    assert unify(1, x, s) == extend_substitution(x, 1, s)
+    # Two distinct, fresh vars unify.
+    assert unify(x, y, s) == extend_substitution(x, y, s)
+
+
+@pytest.mark.parametrize(
+    ("seq1", "seq2", "expected"),
+    [
+        # Equal sequences unify
+        ((1, 2), (1, 2), empty_sub()),
+        ([1, 2], [1, 2], empty_sub()),
+        (cons(1, cons(2, nil())), cons(1, cons(2, nil())), empty_sub()),
+        # Different sequences don't unify
+        ((1, 2), (1, 3), SENTINEL),
+        ([1, 2], [1], SENTINEL),
+        (cons(1, cons(2, nil())), cons(1, nil()), SENTINEL),
+    ],
+)
+def test_unify_sequences(seq1, seq2, expected):
+    """
+    Unification works correctly for sequences like tuples, lists, and cons pairs.
+    """
+    s = empty_sub()
+    assert unify(seq1, seq2, s) == expected
+
+
+def test_mzero_is_empty_stream():
+    """
+    mzero() returns an empty stream.
+    """
+    assert mzero() == ()
+
+
+def test_unit_creates_stream_with_state():
+    """
+    unit() creates a stream containing a single state followed by an empty stream.
+    """
+    state = empty_state()
+    assert unit(state) == (state, mzero())
+
+
+def test_pull_evaluates_thunk():
+    """
+    pull() evaluates a thunk to produce its underlying stream.
+    """
+    state = empty_state()
+
+    def thunk():
+        return unit(state)
+
+    assert pull(thunk) == unit(state)
+
+
+def test_take_from_unit_stream():
+    """
+    take() correctly extracts elements from a unit stream.
+    """
+    state = empty_state()
+    assert take(1, unit(state)) == [state]  # Taking one element returns the state.
+    assert take(2, unit(state)) == [
+        state
+    ]  # Taking more elements still returns just the state.
+
+
+def test_take_from_empty_stream():
+    """
+    take() returns an empty list when given an empty stream.
+    """
+    assert take(1, mzero()) == []
+
+
+def test_mplus():
+    state = empty_state()
+    s1 = unit(state)
+    s2 = unit(State(empty_sub()))
+    # Combine two streams
+    combined = mplus(s1, s2)
+    assert take(2, combined) == [state, State(empty_sub())]
+
+
+@pytest.mark.parametrize(
+    "val",
+    [
+        Var("x", _id=0),
+        cons(Var("x", _id=0), nil()),
+        cons(nil(), Var("x", _id=0)),
+        (Var("x", _id=0), Var("x", _id=0)),
+        ("foo", Var("x", _id=0)),
+        [Var("x", _id=0)],
+        [0, Var("x", _id=0)],
+        [[Var("x", _id=0)]],
+        ([Var("x", _id=0)],),
+    ],
+)
+def test_occurs_check_raises(val):
+    with pytest.raises(OccursError):
+        extend_substitution(Var("x", _id=0), val, empty_sub())
