@@ -34,9 +34,9 @@ The main interface is provided through Hy macros and functions in `microkanren.l
 
 ;; Basic pattern-matching support with defne
 (defne ancestor° [x y]
-  ([[x y]]
+  ([x y]
    (parent° x y))
-  ([[x y]]
+  ([x y]
    (fresh [z]
      (parent° x z)
      (ancestor° z y))))
@@ -55,7 +55,7 @@ Relations can be tabled, using the `tabled` decorator to improve performance, an
        (path° z y))]))
 ```
 
-## Tutorial: Building a Pizza Recommendation System
+### Tutorial: Building a Pizza Recommendation System
 
 Let's build a simple pizza recommendation system to demonstrate how relational programming works:
 
@@ -94,12 +94,6 @@ Let's build a simple pizza recommendation system to demonstrate how relational p
 ;; => [#(mushroom)]
 ```
 
-This example shows how to:
-1. Define facts using `conde` for alternatives
-2. Create relations between entities (people and toppings)
-3. Compose relations to find common preferences
-4. Query the system in different ways
-
 ## Python Core API
 
 The core implementation is available in `microkanren.core` for direct use from Python:
@@ -133,5 +127,78 @@ Format code:
 ruff check --fix src tests
 ruff format src tests
 ```
+
+## API Reference
+
+### Core Operators
+
+#### == (unification)
+
+```clojure
+(== term1 term2)
+```
+
+Unifies two terms, succeeding if they can be made equal. Basic building block for relations.
+
+#### fresh (variable introduction)
+
+```clojure
+(fresh [x y z ...] goal ...)
+```
+
+Introduces new logic variables into scope. Returns conjunction of all goals.
+
+#### conde (disjunction)
+
+```clojure
+(conde
+  [goal1 ...]
+  [goal3 ...])
+```
+
+Returns disjunction of conjunctions. Each clause represents an "or" branch.
+
+### Running Queries
+
+#### run* (unlimited results)
+
+```clojure
+(run* [q ...] goal)
+```
+
+Returns all results that satisfy the goals.
+
+#### run (limited results)
+
+```clojure
+(run n [q ...] goal)
+```
+
+Returns at most n results that satisfy the goals.
+
+### Relation Definition
+
+#### defne (pattern matching)
+```clojure
+(defne relation° [args]
+  ([pattern1] goal1 ...)
+  ([pattern2] goal2 ...)
+  ...)
+
+```
+
+Defines a relation using pattern matching. Patterns are unified with args.
+- Use `_` for anonymous variables
+- Variables in patterns become fresh variables, unless they are bound by the parameters
+- Multiple clauses create disjunctions
+
+#### core.tabled (tabling decorator)
+
+```clojure
+(defn [core.tabled] relation° [x y]
+  goals ...)
+```
+
+Tables the defined relation.
 
 [^1]: [μKanren: A Minimal Functional Core for Relational Programming (Hemann & Friedman, 2013)](http://webyrd.net/scheme-2013/papers/HemannMuKanren2013.pdf)
