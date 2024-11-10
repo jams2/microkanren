@@ -278,7 +278,9 @@ def bind(stream: Stream, g: Goal) -> Stream:
     elif isinstance(stream, WaitingStream):
         return w_check(
             stream,
+            # Success: the WaitingStream can contribute new answers.
             lambda x: lambda: bind(x(), g),
+            # Failure: the WaitingStream cannot contribute new answers.
             lambda: WaitingStream(
                 SuspendedStream(
                     x.cache,
@@ -301,7 +303,9 @@ def mplus(left: Stream, right: Stream) -> Stream:
     elif isinstance(left, WaitingStream):
         return w_check(
             left,
+            # Success: the WaitingStream can contribute new answers.
             lambda x: lambda: mplus(right, x),
+            # Failure: the WaitingStream cannot contribute new answers.
             lambda: right + left
             if isinstance(right, WaitingStream)
             else mplus(right, lambda: left),
@@ -508,7 +512,7 @@ def w_check(
             # its thunk, followed by any remaining suspended streams.
             head, *tail = w
             _, _, thunk = head
-            rest_suspended_streams = a[::-1] + tail
+            rest_suspended_streams: WaitingStream = a[::-1] + tail
             return sk(
                 lambda: thunk()
                 if not w
